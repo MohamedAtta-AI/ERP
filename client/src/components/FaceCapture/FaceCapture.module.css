@@ -1,0 +1,420 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* Video/Capture Area */
+.captureArea {
+  position: relative;
+  width: 100%;
+}
+
+.videoWrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  max-width: 400px;
+  margin: 0 auto;
+  background-color: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.video,
+.capturedImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* Face Detection Box */
+.faceBox {
+  position: absolute;
+  border: 3px solid #3b82f6;
+  border-radius: 8px;
+  pointer-events: none;
+  transform: scaleX(-1);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.faceBoxReady {
+  border-color: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+}
+
+/* Progress Ring Overlay */
+.ringOverlay {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progressRingSvg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.progressCircle {
+  transition: stroke-dasharray 0.3s ease, stroke 0.3s ease;
+}
+
+.progressText {
+  display: flex;
+  align-items: baseline;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  z-index: 1;
+}
+
+.progressNumber {
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.progressLabel {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+/* Loading Overlay */
+.loadingOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background-color: rgba(0, 0, 0, 0.85);
+  color: white;
+  font-size: 0.875rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Countdown Overlay */
+.countdownOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.countdownNumber {
+  font-size: 5rem;
+  font-weight: bold;
+  color: white;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+/* Quality Panel */
+.qualityPanel {
+  background-color: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.qualityHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.qualityTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 0;
+}
+
+.warningBadge {
+  font-size: 0.65rem;
+  padding: 0.25rem 0.5rem;
+  background-color: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.qualityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.qualityItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  transition: all 0.2s;
+}
+
+.qualityItem.passed {
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.qualityIcon {
+  font-size: 1.1rem;
+  width: 24px;
+  text-align: center;
+}
+
+.qualityInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.qualityLabel {
+  font-weight: 600;
+  color: #374151;
+}
+
+.qualityMessage {
+  font-size: 0.7rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qualityItem.passed .qualityMessage {
+  color: #16a34a;
+}
+
+.qualityStatus {
+  font-weight: 600;
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+}
+
+.qualityItem.passed .qualityStatus {
+  color: #22c55e;
+}
+
+.qualityItem.failed .qualityStatus {
+  color: #d1d5db;
+}
+
+/* Liveness Section */
+.livenessSection {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.livenessHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.livenessBar {
+  height: 6px;
+  background-color: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.livenessProgress {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  transition: width 0.3s ease;
+  border-radius: 3px;
+}
+
+.livenessHint {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+/* Instructions */
+.instructions {
+  text-align: center;
+  font-size: 0.875rem;
+  color: #6b7280;
+  min-height: 1.5rem;
+  padding: 0 0.5rem;
+}
+
+.readyText {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.warningText {
+  color: #f59e0b;
+  font-size: 0.8rem;
+}
+
+/* Action Buttons */
+.actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.captureButton,
+.retakeButton,
+.cancelButton,
+.retryButton {
+  padding: 0.875rem 1.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.captureButton {
+  background-color: #1e40af;
+  color: white;
+  flex: 1;
+  max-width: 200px;
+}
+
+.captureButton:hover:not(:disabled) {
+  background-color: #1e3a8a;
+}
+
+.captureButton:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.retakeButton {
+  background-color: #f3f4f6;
+  color: #1f2937;
+}
+
+.retakeButton:hover {
+  background-color: #e5e7eb;
+}
+
+.cancelButton {
+  background-color: transparent;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.cancelButton:hover {
+  background-color: #f3f4f6;
+}
+
+.retryButton {
+  background-color: #1e40af;
+  color: white;
+  margin-top: 1rem;
+}
+
+.retryButton:hover {
+  background-color: #1e3a8a;
+}
+
+/* Error Container */
+.errorContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  gap: 1rem;
+  text-align: center;
+}
+
+.errorIcon {
+  font-size: 3rem;
+}
+
+.errorMessage {
+  color: #ef4444;
+  font-size: 0.875rem;
+  max-width: 300px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .container {
+    padding: 0.5rem;
+  }
+
+  .videoWrapper {
+    max-width: 320px;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .captureButton {
+    max-width: none;
+  }
+
+  .qualityHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

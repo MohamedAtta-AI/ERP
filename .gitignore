@@ -205,3 +205,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Frontend (Vite/React) ---
+client/node_modules/
+client/dist/
+client/.vite/
+client/.eslintcache
+client/.turbo/
+client/.parcel-cache/
+client/coverage/
+client/npm-debug.log*
+client/yarn-debug.log*
+client/yarn-error.log*
+client/pnpm-debug.log*
+client/.DS_Store
+client/*.local
+client/.env
+client/.env.local
+client/.env.*.local
