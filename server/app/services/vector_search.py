@@ -15,17 +15,17 @@ class VectorSearchService:
         self,
         db: AsyncSession,
         query_embedding: np.ndarray,
-        threshold: float = 0.65,
-        limit: int = 1
+        threshold: float = 0.60,  # Lowered threshold for better matching
+        limit: int = 10  # Get top 10 matches
     ) -> Optional[Dict]:
-        """Find similar face using cosine similarity."""
+        """
+        Find similar face using cosine similarity.
+        Returns best match across all embeddings (supports multiple embeddings per employee).
+        """
         # Convert numpy array to list for pgvector
         embedding_list = query_embedding.tolist()
         
-        # Use cosine similarity operator (<=>)
-        # Note: pgvector uses 1 - cosine_distance, so higher is better
-        # We want similarity >= threshold, which means distance <= (1 - threshold)
-        
+        # Get top N matches
         query = select(
             FaceEmbedding.employee_id,
             FaceEmbedding.id,
@@ -37,13 +37,27 @@ class VectorSearchService:
         ).limit(limit)
         
         result = await db.execute(query)
-        row = result.first()
+        rows = result.all()
         
-        if row:
-            return {
-                "employee_id": row.employee_id,
-                "embedding_id": row.id,
-                "similarity": float(row.similarity)
-            }
+        if not rows:
+            return None
+        
+        # Group by employee_id and find best match per employee
+        best_by_employee = {}
+        for row in rows:
+            emp_id = row.employee_id
+            similarity = float(row.similarity)
+            
+            if emp_id not in best_by_employee or similarity > best_by_employee[emp_id]["similarity"]:
+                best_by_employee[emp_id] = {
+                    "employee_id": emp_id,
+                    "embedding_id": row.id,
+                    "similarity": similarity
+                }
+        
+        # Return the best match overall
+        if best_by_employee:
+            best_match = max(best_by_employee.values(), key=lambda x: x["similarity"])
+            return best_match
         
         return None

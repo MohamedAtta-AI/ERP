@@ -10,7 +10,8 @@ from ...models.face_embedding import FaceEmbedding
 from ...schemas.employee import EmployeeCreate, EmployeeResponse
 from ...utils.employee_id_generator import get_unique_employee_id
 from ...services.face_recognition import FaceRecognitionService
-from ...services.image_processing import process_image_for_recognition
+from ...services.image_processing import process_face_crop_for_recognition
+from ...services.anti_spoofing_model import get_antispoof_service
 from ...utils.validators import validate_image_file, validate_image_size
 from ...config import settings
 import os
@@ -92,13 +93,33 @@ async def enroll_face(
     validate_image_file(file)
     await validate_image_size(file)
     
-    # Read image data
+    # Read image data (should be pre-cropped 112x112 face from frontend)
     image_data = await file.read()
-    print(f"[ENROLL] Image size: {len(image_data)} bytes")
+    print(f"[ENROLL] Received face crop, size: {len(image_data)} bytes")
     
-    # Process image
-    processed_image = process_image_for_recognition(image_data)
-    print(f"[ENROLL] Processed image shape: {processed_image.shape}")
+    # Process pre-cropped face (validates and converts format)
+    processed_image = process_face_crop_for_recognition(image_data)
+    print(f"[ENROLL] Processed face crop shape: {processed_image.shape}")
+
+    # Anti-spoofing (model-based) on the cropped face
+    try:
+        fas = get_antispoof_service()
+        fas_result = fas.check(processed_image)
+        print(
+            f"[ENROLL] Anti-spoof: live={fas_result.is_live} "
+            f"score={fas_result.live_score:.3f} (thr={fas_result.threshold:.2f})"
+        )
+        if not fas_result.is_live:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Liveness check failed (possible spoof). Please retry with a live face.",
+            )
+    except FileNotFoundError as e:
+        # Model missing: fail closed for production; adjust to fail-open in dev if desired.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
     
     # Generate embedding
     face_service = get_face_service()
@@ -115,7 +136,27 @@ async def enroll_face(
         f.write(image_data)
     print(f"[ENROLL] Saved image to: {image_path}")
     
-    # Store embedding
+    # Check existing embeddings count (limit to 10 per employee)
+    existing_count = await db.execute(
+        select(FaceEmbedding).where(FaceEmbedding.employee_id == employee.id)
+    )
+    embedding_count = len(existing_count.scalars().all())
+    
+    if embedding_count >= 10:
+        # Remove oldest embedding
+        oldest_result = await db.execute(
+            select(FaceEmbedding)
+            .where(FaceEmbedding.employee_id == employee.id)
+            .order_by(FaceEmbedding.created_at)
+            .limit(1)
+        )
+        oldest_embedding = oldest_result.scalar_one_or_none()
+        if oldest_embedding:
+            await db.delete(oldest_embedding)
+            await db.commit()
+            print(f"[ENROLL] Removed oldest embedding (limit reached)")
+    
+    # Store new embedding
     face_embedding = FaceEmbedding(
         employee_id=employee.id,
         embedding=embedding.tolist(),  # Convert numpy array to list
@@ -125,12 +166,13 @@ async def enroll_face(
     db.add(face_embedding)
     await db.commit()
     await db.refresh(face_embedding)
-    print(f"[ENROLL] Stored embedding with ID: {face_embedding.id}")
+    print(f"[ENROLL] Stored embedding with ID: {face_embedding.id} (Total: {embedding_count + 1})")
     
     return {
         "message": "Face enrolled successfully",
         "employee_id": employee_id,
-        "image_path": str(image_path)
+        "image_path": str(image_path),
+        "embedding_count": embedding_count + 1
     }
 
 

@@ -19,6 +19,7 @@ const AttendancePage = () => {
     setMode("enroll");
   };
 
+  // Handle single face capture (for attendance verification)
   const handleFaceCapture = async (imageFile) => {
     if (!employeeId) {
       setError("Employee ID is required");
@@ -30,6 +31,31 @@ const AttendancePage = () => {
 
     try {
       await enrollFace(employeeId, imageFile);
+      setSuccess(true);
+    } catch (err) {
+      setError(err.message || "Face enrollment failed. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
+  // Handle multi-angle face capture (for registration)
+  const handleMultiFaceCapture = async (imageFiles) => {
+    if (!employeeId) {
+      setError("Employee ID is required");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Enroll each face angle
+      let enrolledCount = 0;
+      for (const file of imageFiles) {
+        await enrollFace(employeeId, file);
+        enrolledCount++;
+      }
+      console.log(`Enrolled ${enrolledCount} face angles for ${employeeId}`);
       setSuccess(true);
     } catch (err) {
       setError(err.message || "Face enrollment failed. Please try again.");
@@ -136,8 +162,8 @@ const AttendancePage = () => {
                 Employee ID: <strong>{employeeId}</strong>
               </div>
               <p className={styles.instructions}>
-                Position your face in the circle. Ensure good lighting and look
-                directly at the camera.
+                We'll capture your face from 3 angles (front, left, right) for
+                better recognition accuracy.
               </p>
 
               {error && (
@@ -158,8 +184,8 @@ const AttendancePage = () => {
                 <FaceCapture
                   employeeId={employeeId}
                   onCapture={handleFaceCapture}
+                  onMultiCapture={handleMultiFaceCapture}
                   onCancel={() => setMode("register")}
-                  requiresLiveness={true}
                   mode="registration"
                 />
               )}

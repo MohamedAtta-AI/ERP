@@ -223,3 +223,11 @@ client/*.local
 client/.env
 client/.env.local
 client/.env.*.local
+
+# --- Models (downloaded locally) ---
+models/antispoof_mini_fasnet.onnx
+models/*.pth
+models/2.7_80x80_MiniFASNetV2.prototxt
+models/2.7_80x80_MiniFASNetV2.caffemodel
+models/4_0_0_80x80_MiniFASNetV1SE.prototxt
+models/4_0_0_80x80_MiniFASNetV1SE.caffemodel

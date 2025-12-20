@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Server
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     
     # Face Recognition
     FACE_SIMILARITY_THRESHOLD: float = 0.65

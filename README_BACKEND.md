@@ -90,3 +90,32 @@ API_HOST=0.0.0.0
 API_PORT=8000
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
+
+## Anti-spoofing (DeepFace)
+
+The backend uses **DeepFace** for lightweight, real-time anti-spoofing detection. DeepFace's anti-spoofing module automatically detects if a face is real or fake (spoofed).
+
+### Installation
+
+DeepFace is included in the project dependencies. Install with:
+
+```bash
+uv sync
+```
+
+**Note:** DeepFace requires Python 3.10-3.13 (TensorFlow dependency limitation). The project is configured for `requires-python = ">=3.10,<3.14"`.
+
+### How It Works
+
+- DeepFace's anti-spoofing is optimized for real-time use
+- It automatically downloads required models on first use (stored in `~/.deepface/weights/`)
+- Works with pre-cropped 112×112 face images from the frontend
+- Uses OpenCV detector backend for lightweight, fast processing
+- Returns a simple boolean: `is_real` (True = live face, False = spoof)
+
+### Model Download
+
+DeepFace will automatically download anti-spoofing models on first use. No manual download required. Models are cached locally for subsequent runs.
+
+**Previous Implementation:**
+The old MiniFASNet implementation has been replaced with DeepFace for better real-time performance and easier maintenance.

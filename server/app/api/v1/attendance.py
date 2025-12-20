@@ -13,7 +13,8 @@ from ...schemas.attendance import AttendanceCheckIn, AttendanceCheckOut, Attenda
 from ...schemas.face import FaceVerifyResponse
 from ...services.face_recognition import FaceRecognitionService
 from ...services.vector_search import VectorSearchService
-from ...services.image_processing import process_image_for_recognition
+from ...services.image_processing import process_face_crop_for_recognition
+from ...services.anti_spoofing_model import get_antispoof_service
 from ...utils.validators import validate_image_file, validate_image_size
 from ...config import settings
 from pgvector.sqlalchemy import Vector
@@ -52,28 +53,47 @@ async def verify_attendance(
     validate_image_file(file)
     await validate_image_size(file)
     
-    # Read image data
+    # Read image data (should be pre-cropped 112x112 face from frontend)
     image_data = await file.read()
-    print(f"[VERIFY] Image size: {len(image_data)} bytes")
+    print(f"[VERIFY] Received face crop, size: {len(image_data)} bytes")
     
-    # Process image
-    processed_image = process_image_for_recognition(image_data)
-    print(f"[VERIFY] Processed image shape: {processed_image.shape}")
+    # Process pre-cropped face (validates and converts format)
+    processed_image = process_face_crop_for_recognition(image_data)
+    print(f"[VERIFY] Processed face crop shape: {processed_image.shape}")
+
+    # Anti-spoofing (model-based) on the cropped face
+    try:
+        fas = get_antispoof_service()
+        fas_result = fas.check(processed_image)
+        print(
+            f"[VERIFY] Anti-spoof: live={fas_result.is_live} "
+            f"score={fas_result.live_score:.3f} (thr={fas_result.threshold:.2f})"
+        )
+        if not fas_result.is_live:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Liveness check failed (possible spoof). Please retry.",
+            )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
     
     # Generate embedding
     face_service = get_face_service()
     query_embedding = face_service.generate_embedding(processed_image)
-    print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}, first 5 values: {query_embedding[:5]}")
+    print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}")
     
     # Check how many embeddings exist in database
     count_result = await db.execute(select(FaceEmbedding))
     embeddings = count_result.scalars().all()
     print(f"[VERIFY] Total embeddings in database: {len(embeddings)}")
     
-    # Search for matching face with lower threshold for debugging
+    # Search for matching face
     vector_service = get_vector_service()
     match = await vector_service.find_similar_face(
-        db, query_embedding, threshold=0.4  # Lowered from 0.65 for debugging
+        db, query_embedding, threshold=0.60  # Production threshold
     )
     
     print(f"[VERIFY] Match result: {match}")

@@ -32,6 +32,17 @@
   transform: scaleX(-1);
 }
 
+/* Landmarks Overlay */
+.landmarksCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* Face Detection Box */
 .faceBox {
   position: absolute;
@@ -117,6 +128,22 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Auto-capture Indicator */
+.autoCaptureIndicator {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(34, 197, 94, 0.9);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  animation: pulse 1s ease-in-out infinite;
+  z-index: 10;
 }
 
 /* Countdown Overlay */
@@ -253,41 +280,82 @@
   color: #d1d5db;
 }
 
-/* Liveness Section */
-.livenessSection {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
-}
-
-.livenessHeader {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #374151;
+/* Multi-Angle Progress (Registration) */
+.multiAngleProgress {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  padding: 1rem;
   margin-bottom: 0.5rem;
 }
 
-.livenessBar {
-  height: 6px;
+.poseSteps {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.poseStep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.poseIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.3s;
+}
+
+.posePending .poseIcon {
   background-color: #e5e7eb;
-  border-radius: 3px;
-  overflow: hidden;
+  color: #9ca3af;
 }
 
-.livenessProgress {
-  height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #22c55e);
-  transition: width 0.3s ease;
-  border-radius: 3px;
+.poseCurrent .poseIcon {
+  background-color: #3b82f6;
+  color: white;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
 }
 
-.livenessHint {
-  font-size: 0.75rem;
+.poseCompleted .poseIcon {
+  background-color: #22c55e;
+  color: white;
+}
+
+.poseLabel {
+  font-size: 0.65rem;
   color: #6b7280;
-  margin-top: 0.5rem;
   text-align: center;
+  max-width: 60px;
+}
+
+.poseCurrent .poseLabel {
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.poseCompleted .poseLabel {
+  color: #22c55e;
+}
+
+.poseInstruction {
+  text-align: center;
+  font-size: 0.875rem;
+  color: #374151;
+  margin: 0;
+}
+
+.poseInstruction strong {
+  color: #1e40af;
 }
 
 /* Instructions */
@@ -310,7 +378,8 @@
 }
 
 /* Action Buttons */
-.actions {
+.actions,
+.buttonGroup {
   display: flex;
   gap: 1rem;
   justify-content: center;
