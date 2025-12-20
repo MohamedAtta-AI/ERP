@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import * as faceapi from "face-api.js";
+import { faceDetectionService } from "../../services/faceDetectionService";
 import styles from "./FaceCapture.module.css";
 
 const QUALITY_THRESHOLDS = {
@@ -47,25 +47,20 @@ const FaceCapture = ({
   const [livenessComplete, setLivenessComplete] = useState(!requiresLiveness);
   const [livenessProgress, setLivenessProgress] = useState(0);
 
-  // Load face-api.js models
+  // Check if models are already loaded (preloaded by service)
   useEffect(() => {
-    const loadModels = async () => {
+    const checkModels = async () => {
       try {
-        // Load from CDN
-        const MODEL_URL =
-          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model";
-
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-
+        // Ensure models are loaded (will use preloaded if available)
+        await faceDetectionService.ensureModelsLoaded();
         setModelsLoaded(true);
-        console.log("Face detection models loaded");
       } catch (err) {
         console.error("Failed to load face detection models:", err);
         setError("Failed to load face detection. Please refresh.");
       }
     };
 
-    loadModels();
+    checkModels();
   }, []);
 
   // Start camera
@@ -179,15 +174,9 @@ const FaceCapture = ({
       const video = videoRef.current;
       if (video.readyState < 2) return;
 
-      // Detect faces
+      // Detect faces using preloaded service
       try {
-        const detections = await faceapi.detectAllFaces(
-          video,
-          new faceapi.TinyFaceDetectorOptions({
-            inputSize: 320,
-            scoreThreshold: 0.5,
-          })
-        );
+        const detections = await faceDetectionService.detectFaces(video);
 
         setFaceCount(detections.length);
 
@@ -330,11 +319,11 @@ const FaceCapture = ({
     if (isCapturing) return;
     setIsCapturing(true);
 
-    for (let i = 3; i > 0; i--) {
-      setCountdown(i);
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    setCountdown(null);
+    // for (let i = 3; i > 0; i--) {
+    //   setCountdown(i);
+    //   await new Promise((r) => setTimeout(r, 1000));
+    // }
+    // setCountdown(null);
 
     const imageDataUrl = captureFrame();
     if (!imageDataUrl) {
@@ -488,11 +477,11 @@ const FaceCapture = ({
               )}
 
               {/* Countdown */}
-              {countdown && (
+              {/* {countdown && (
                 <div className={styles.countdownOverlay}>
                   <span className={styles.countdownNumber}>{countdown}</span>
                 </div>
-              )}
+              )} */}
             </>
           )}
         </div>
