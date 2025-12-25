@@ -91,9 +91,9 @@ API_PORT=8000
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
-## Anti-spoofing (DeepFace)
+## Face Recognition (FaceNet512 via DeepFace)
 
-The backend uses **DeepFace** for lightweight, real-time anti-spoofing detection. DeepFace's anti-spoofing module automatically detects if a face is real or fake (spoofed).
+The backend uses **FaceNet512** from DeepFace for face recognition. FaceNet512 produces 512-dimensional embeddings with high accuracy.
 
 ### Installation
 
@@ -107,15 +107,26 @@ uv sync
 
 ### How It Works
 
-- DeepFace's anti-spoofing is optimized for real-time use
-- It automatically downloads required models on first use (stored in `~/.deepface/weights/`)
-- Works with pre-cropped 112×112 face images from the frontend
-- Uses OpenCV detector backend for lightweight, fast processing
-- Returns a simple boolean: `is_real` (True = live face, False = spoof)
+- **Face Recognition**: FaceNet512 model (512-dimensional embeddings)
+- **Anti-Spoofing**: DeepFace's built-in anti-spoofing module
+- **Input Size**: 160×160 pixels (frontend crops and resizes automatically)
+- **Embedding Size**: 512 dimensions (stored in PostgreSQL with pgvector)
+- **Similarity Threshold**: 0.60 (configurable via `FACE_SIMILARITY_THRESHOLD`)
 
 ### Model Download
 
-DeepFace will automatically download anti-spoofing models on first use. No manual download required. Models are cached locally for subsequent runs.
+DeepFace will automatically download FaceNet512 and anti-spoofing models on first use. Models are cached in `~/.deepface/weights/` for subsequent runs. No manual download required.
 
-**Previous Implementation:**
-The old MiniFASNet implementation has been replaced with DeepFace for better real-time performance and easier maintenance.
+### Database Migration
+
+If upgrading from SFace (128d) to FaceNet512 (512d), run the migration script:
+
+```bash
+python scripts/migrate_face_embeddings_to_512d.py
+```
+
+**Warning:** This will delete all existing face embeddings. Employees will need to re-enroll their faces.
+
+### Previous Implementation
+
+The old SFace (128d) implementation has been replaced with FaceNet512 (512d) for better accuracy and industry-standard embeddings.

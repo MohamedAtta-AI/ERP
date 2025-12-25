@@ -14,7 +14,6 @@ from ...schemas.face import FaceVerifyResponse
 from ...services.face_recognition import FaceRecognitionService
 from ...services.vector_search import VectorSearchService
 from ...services.image_processing import process_face_crop_for_recognition
-from ...services.anti_spoofing_model import get_antispoof_service
 from ...utils.validators import validate_image_file, validate_image_size
 from ...config import settings
 from pgvector.sqlalchemy import Vector
@@ -30,7 +29,7 @@ def get_face_service():
     """Get or create face recognition service instance."""
     global _face_service
     if _face_service is None:
-        _face_service = FaceRecognitionService(settings.SFACE_MODEL_PATH)
+        _face_service = FaceRecognitionService()  # FaceNet512 via DeepFace
     return _face_service
 
 def get_vector_service():
@@ -53,7 +52,7 @@ async def verify_attendance(
     validate_image_file(file)
     await validate_image_size(file)
     
-    # Read image data (should be pre-cropped 112x112 face from frontend)
+    # Read image data (should be pre-cropped 160x160 face from frontend for FaceNet512)
     image_data = await file.read()
     print(f"[VERIFY] Received face crop, size: {len(image_data)} bytes")
     
@@ -61,29 +60,42 @@ async def verify_attendance(
     processed_image = process_face_crop_for_recognition(image_data)
     print(f"[VERIFY] Processed face crop shape: {processed_image.shape}")
 
-    # Anti-spoofing (model-based) on the cropped face
+    # Generate embedding with anti-spoofing check (FaceNet512 built-in)
+    face_service = get_face_service()
     try:
-        fas = get_antispoof_service()
-        fas_result = fas.check(processed_image)
-        print(
-            f"[VERIFY] Anti-spoof: live={fas_result.is_live} "
-            f"score={fas_result.live_score:.3f} (thr={fas_result.threshold:.2f})"
+        query_embedding, anti_spoof_result = face_service.generate_embedding(
+            processed_image, 
+            check_anti_spoof=True
         )
-        if not fas_result.is_live:
+        
+        # Anti-spoofing is already checked in generate_embedding() - if it fails, an exception is raised
+        # If we get here, anti-spoofing passed
+        if anti_spoof_result:
+            print(
+                f"[VERIFY] Anti-spoof passed: score={anti_spoof_result.get('antispoof_score', 1.0):.3f}"
+            )
+        
+        print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}")
+    except ValueError as e:
+        # Handle anti-spoofing failures and other validation errors
+        error_msg = str(e)
+        if "anti-spoofing failed" in error_msg.lower() or "spoof" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Liveness check failed (possible spoof). Please retry.",
             )
-    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[VERIFY] Error during face recognition/anti-spoofing: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
+            detail=f"Face recognition service error: {str(e)}",
         )
-    
-    # Generate embedding
-    face_service = get_face_service()
-    query_embedding = face_service.generate_embedding(processed_image)
-    print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}")
     
     # Check how many embeddings exist in database
     count_result = await db.execute(select(FaceEmbedding))
@@ -93,7 +105,7 @@ async def verify_attendance(
     # Search for matching face
     vector_service = get_vector_service()
     match = await vector_service.find_similar_face(
-        db, query_embedding, threshold=0.60  # Production threshold
+        db, query_embedding, threshold=settings.FACE_SIMILARITY_THRESHOLD
     )
     
     print(f"[VERIFY] Match result: {match}")

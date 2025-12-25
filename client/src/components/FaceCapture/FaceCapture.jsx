@@ -413,10 +413,11 @@ const FaceCapture = ({
       height + padding * 2
     );
 
-    canvas.width = 112;
-    canvas.height = 112;
+    // FaceNet512 expects 160x160 input
+    canvas.width = 160;
+    canvas.height = 160;
 
-    ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, 112, 112);
+    ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, 160, 160);
 
     return canvas.toDataURL("image/jpeg", 0.9);
   };
@@ -453,17 +454,17 @@ const FaceCapture = ({
 
         // Analyze quality
         const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = 112;
-        tempCanvas.height = 112;
+        tempCanvas.width = 160;
+        tempCanvas.height = 160;
         const tempCtx = tempCanvas.getContext("2d");
         const tempImg = new Image();
 
         await new Promise((resolve, reject) => {
           tempImg.onload = () => {
             tempCtx.drawImage(tempImg, 0, 0);
-            const imageData = tempCtx.getImageData(0, 0, 112, 112);
+            const imageData = tempCtx.getImageData(0, 0, 160, 160);
             const brightness = calculateBrightness(imageData);
-            const sharpness = calculateSharpness(imageData, 112, 112);
+            const sharpness = calculateSharpness(imageData, 160, 160);
 
             const qualityScore =
               (brightness >= QUALITY_THRESHOLDS.BRIGHTNESS_MIN &&

@@ -11,7 +11,6 @@ from ...schemas.employee import EmployeeCreate, EmployeeResponse
 from ...utils.employee_id_generator import get_unique_employee_id
 from ...services.face_recognition import FaceRecognitionService
 from ...services.image_processing import process_face_crop_for_recognition
-from ...services.anti_spoofing_model import get_antispoof_service
 from ...utils.validators import validate_image_file, validate_image_size
 from ...config import settings
 import os
@@ -26,7 +25,7 @@ def get_face_service():
     """Get or create face recognition service instance."""
     global _face_service
     if _face_service is None:
-        _face_service = FaceRecognitionService(settings.SFACE_MODEL_PATH)
+        _face_service = FaceRecognitionService()  # FaceNet512 via DeepFace
     return _face_service
 
 
@@ -93,7 +92,7 @@ async def enroll_face(
     validate_image_file(file)
     await validate_image_size(file)
     
-    # Read image data (should be pre-cropped 112x112 face from frontend)
+    # Read image data (should be pre-cropped 160x160 face from frontend for FaceNet512)
     image_data = await file.read()
     print(f"[ENROLL] Received face crop, size: {len(image_data)} bytes")
     
@@ -101,30 +100,42 @@ async def enroll_face(
     processed_image = process_face_crop_for_recognition(image_data)
     print(f"[ENROLL] Processed face crop shape: {processed_image.shape}")
 
-    # Anti-spoofing (model-based) on the cropped face
+    # Generate embedding with anti-spoofing check (FaceNet512 built-in)
+    face_service = get_face_service()
     try:
-        fas = get_antispoof_service()
-        fas_result = fas.check(processed_image)
-        print(
-            f"[ENROLL] Anti-spoof: live={fas_result.is_live} "
-            f"score={fas_result.live_score:.3f} (thr={fas_result.threshold:.2f})"
+        embedding, anti_spoof_result = face_service.generate_embedding(
+            processed_image,
+            check_anti_spoof=True
         )
-        if not fas_result.is_live:
+        
+        # Anti-spoofing is already checked in generate_embedding() - if it fails, an exception is raised
+        # If we get here, anti-spoofing passed
+        if anti_spoof_result:
+            print(
+                f"[ENROLL] Anti-spoof passed: score={anti_spoof_result.get('antispoof_score', 1.0):.3f}"
+            )
+        
+        print(f"[ENROLL] Generated embedding shape: {embedding.shape}, first 5 values: {embedding[:5]}")
+    except ValueError as e:
+        # Handle anti-spoofing failures and other validation errors
+        error_msg = str(e)
+        if "anti-spoofing failed" in error_msg.lower() or "spoof" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Liveness check failed (possible spoof). Please retry with a live face.",
             )
-    except FileNotFoundError as e:
-        # Model missing: fail closed for production; adjust to fail-open in dev if desired.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ENROLL] Error during face recognition/anti-spoofing: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
+            detail=f"Face recognition service error: {str(e)}",
         )
-    
-    # Generate embedding
-    face_service = get_face_service()
-    embedding = face_service.generate_embedding(processed_image)
-    print(f"[ENROLL] Generated embedding shape: {embedding.shape}, first 5 values: {embedding[:5]}")
     
     # Save image to storage
     storage_path = Path(settings.STORAGE_PATH) / "registrations"

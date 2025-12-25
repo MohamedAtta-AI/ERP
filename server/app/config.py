@@ -1,5 +1,5 @@
 """Configuration management."""
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     
     # Face Recognition
-    FACE_SIMILARITY_THRESHOLD: float = 0.65
-    SFACE_MODEL_PATH: str = "models/sface.onnx"  # Relative to project root
+    FACE_SIMILARITY_THRESHOLD: float = 0.60  # FaceNet512 threshold (typically 0.60-0.65)
+    # Note: FaceNet512 model is loaded automatically by DeepFace on first use
     
     # Storage
     STORAGE_PATH: str = "./server/storage"
@@ -26,9 +26,11 @@ class Settings(BaseSettings):
     # Security
     RATE_LIMIT_PER_MINUTE: int = 60
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",  # Ignore extra fields from .env that are no longer in the model
+    )
 
 
 settings = Settings()

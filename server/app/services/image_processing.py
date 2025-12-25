@@ -3,12 +3,12 @@ Image processing utilities for pre-cropped face images.
 
 ARCHITECTURE:
 - Frontend detects face using MediaPipe Face Mesh
-- Frontend crops face region (with padding) and resizes to 112x112
-- Frontend sends ONLY the 112x112 face crop to backend
-- Backend validates crop and generates embedding (no detection needed)
+- Frontend crops face region (with padding) and resizes to 160x160
+- Frontend sends ONLY the 160x160 face crop to backend
+- Backend validates crop and generates embedding using FaceNet512 (no detection needed)
 
 This reduces:
-- Bandwidth: ~95% reduction (112x112 crop vs 640x480 full image)
+- Bandwidth: ~95% reduction (160x160 crop vs 640x480 full image)
 - Latency: No redundant face detection on backend
 - CPU: Backend only processes small face crops
 """
@@ -27,9 +27,9 @@ def validate_face_crop(image: np.ndarray) -> bool:
     Returns:
         True if appears to be a valid face crop
     """
-    # Check dimensions (should be close to 112x112 for SFace)
+    # Check dimensions (should be close to 160x160 for FaceNet512)
     h, w = image.shape[:2]
-    if w < 50 or h < 50 or w > 200 or h > 200:
+    if w < 50 or h < 50 or w > 300 or h > 300:
         return False
     
     # Check if image has reasonable color variation (faces have variation)
@@ -44,13 +44,13 @@ def validate_face_crop(image: np.ndarray) -> bool:
 def process_face_crop_for_recognition(image_data: bytes) -> np.ndarray:
     """
     Process pre-cropped face image for recognition.
-    Frontend sends 112x112 face crop, backend just validates and converts.
+    Frontend sends 160x160 face crop, backend just validates and converts.
     
     Args:
-        image_data: Raw image bytes (should be 112x112 face crop)
+        image_data: Raw image bytes (should be 160x160 face crop)
         
     Returns:
-        Processed image as numpy array (RGB, 112x112)
+        Processed image as numpy array (RGB, 160x160)
     """
     # Decode image
     nparr = np.frombuffer(image_data, np.uint8)
@@ -63,11 +63,11 @@ def process_face_crop_for_recognition(image_data: bytes) -> np.ndarray:
     if not validate_face_crop(image):
         raise ValueError("Invalid face crop - image does not appear to be a face region")
     
-    # Ensure it's 112x112 (resize if needed, though frontend should send correct size)
-    if image.shape[0] != 112 or image.shape[1] != 112:
-        image = cv2.resize(image, (112, 112))
+    # Ensure it's 160x160 (resize if needed, though frontend should send correct size)
+    if image.shape[0] != 160 or image.shape[1] != 160:
+        image = cv2.resize(image, (160, 160))
     
-    # Convert BGR to RGB (SFace expects RGB)
+    # Convert BGR to RGB (FaceNet512 expects RGB)
     if len(image.shape) == 3:
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     else:
@@ -77,7 +77,7 @@ def process_face_crop_for_recognition(image_data: bytes) -> np.ndarray:
     return image_rgb
 
 
-def resize_image(image: np.ndarray, target_size: tuple = (112, 112)) -> np.ndarray:
+def resize_image(image: np.ndarray, target_size: tuple = (160, 160)) -> np.ndarray:
     """Resize image to target size."""
     return cv2.resize(image, target_size)
 

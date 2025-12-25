@@ -13,7 +13,7 @@ class FaceEmbedding(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
-    embedding = Column(Vector(128), nullable=False)
+    embedding = Column(Vector(512), nullable=False)  # FaceNet512 produces 512-dimensional embeddings
     image_path = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
