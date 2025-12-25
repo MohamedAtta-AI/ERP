@@ -52,7 +52,7 @@ async def verify_attendance(
     validate_image_file(file)
     await validate_image_size(file)
     
-    # Read image data (should be pre-cropped 160x160 face from frontend for FaceNet512)
+    # Read image data (should be pre-cropped 160x160 face from frontend)
     image_data = await file.read()
     print(f"[VERIFY] Received face crop, size: {len(image_data)} bytes")
     
@@ -60,19 +60,15 @@ async def verify_attendance(
     processed_image = process_face_crop_for_recognition(image_data)
     print(f"[VERIFY] Processed face crop shape: {processed_image.shape}")
 
-    # Generate embedding with anti-spoofing check (FaceNet512 built-in)
     face_service = get_face_service()
     try:
-        query_embedding, anti_spoof_result = face_service.generate_embedding(
+        query_embedding, is_real = face_service.generate_embedding(
             processed_image, 
-            check_anti_spoof=True
         )
         
-        # Anti-spoofing is already checked in generate_embedding() - if it fails, an exception is raised
-        # If we get here, anti-spoofing passed
-        if anti_spoof_result:
+        if is_real:
             print(
-                f"[VERIFY] Anti-spoof passed: score={anti_spoof_result.get('antispoof_score', 1.0):.3f}"
+                f"[VERIFY] Anti-spoof passed: {is_real}"
             )
         
         print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}")
