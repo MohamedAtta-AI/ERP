@@ -136,8 +136,12 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
 .envrc
 .venv
+# Keep .env.example as a template
+!.env.example
 env/
 venv/
 ENV/
@@ -225,9 +229,10 @@ client/.env.local
 client/.env.*.local
 
 # --- Models (downloaded locally) ---
-models/antispoof_mini_fasnet.onnx
-models/*.pth
-models/2.7_80x80_MiniFASNetV2.prototxt
-models/2.7_80x80_MiniFASNetV2.caffemodel
-models/4_0_0_80x80_MiniFASNetV1SE.prototxt
-models/4_0_0_80x80_MiniFASNetV1SE.caffemodel
+weights/
+
+# --- Data directories (Docker volumes) ---
+data/*
+!data/.gitkeep
+!data/postgres/.gitkeep
+!data/uploads/.gitkeep

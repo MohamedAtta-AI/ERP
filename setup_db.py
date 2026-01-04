@@ -1,23 +1,19 @@
 """Setup database tables."""
 import asyncio
 from sqlalchemy import text
-from server.app.database import engine, Base
-from server.app.models import Employee, FaceEmbedding, Attendance
+from server.app.database import engine, init_db
 
 
 async def setup_database():
     """Create database tables and enable pgvector."""
-    async with engine.begin() as conn:
-        # Enable pgvector extension
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.commit()
-    
-    print("SUCCESS: Database setup complete!")
-    print("   - pgvector extension enabled")
-    print("   - All tables created")
+    try:
+        await init_db()
+        print("SUCCESS: Database setup complete!")
+        print("   - pgvector extension enabled")
+        print("   - All tables created")
+    except Exception as e:
+        print(f"ERROR: Database setup failed: {e}")
+        raise
 
 
 if __name__ == "__main__":

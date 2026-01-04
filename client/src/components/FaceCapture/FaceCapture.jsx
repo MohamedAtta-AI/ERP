@@ -89,16 +89,34 @@ const FaceCapture = ({
 
   // Check if models are already loaded
   useEffect(() => {
+    let mounted = true;
     const checkModels = async () => {
       try {
+        // Check if already loaded
+        if (faceDetectionService.isReady()) {
+          if (mounted) setModelsLoaded(true);
+          return;
+        }
+        
+        // Load models
         await faceDetectionService.ensureModelsLoaded();
-        setModelsLoaded(true);
+        if (mounted) setModelsLoaded(true);
       } catch (err) {
         console.error("Failed to load face detection models:", err);
-        setError("Failed to load face detection. Please refresh.");
+        // Allow camera to start, but keep modelsLoaded=false so detection doesn't run.
+        if (mounted) {
+          setModelsLoaded(false);
+          setError(
+            "Face detection failed to initialize. Please refresh the page. " +
+              "If you're running the dev server, restart it after dependency changes."
+          );
+        }
       }
     };
     checkModels();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Start camera
@@ -200,7 +218,13 @@ const FaceCapture = ({
 
   // Main detection and quality check loop
   useEffect(() => {
-    if (cameraState !== "ready" || !modelsLoaded || capturedImage) {
+    // Allow camera to show even if models aren't loaded yet
+    if (cameraState !== "ready" || capturedImage) {
+      return;
+    }
+    
+    // Don't start detection until models are loaded
+    if (!modelsLoaded) {
       return;
     }
 
@@ -214,6 +238,15 @@ const FaceCapture = ({
         const faceResult = await faceDetectionService.detectFaceWithLandmarks(
           video
         );
+
+        if (faceResult?.error) {
+          setError(
+            "Face detection initialization error. Please refresh. " +
+              "If running locally, restart the dev server. " +
+              `(${faceResult.error})`
+          );
+          return;
+        }
 
         if (!faceResult.detected) {
           setDetectedFace(null);
@@ -254,21 +287,38 @@ const FaceCapture = ({
         setFaceData(newFaceData);
         faceDataRef.current = newFaceData;
 
-        // Analyze image quality
+        // Analyze image quality - use face crop for brightness/sharpness checks
         const canvas = analysisCanvasRef.current;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        const width = video.videoWidth || 640;
-        const height = video.videoHeight || 480;
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(video, 0, 0, width, height);
+        const videoWidth = video.videoWidth || 640;
+        const videoHeight = video.videoHeight || 480;
+        
+        // Get face crop region with padding for quality analysis
+        const padding = Math.max(boundingBox.width, boundingBox.height) * 0.15;
+        const cropX = Math.max(0, boundingBox.x - padding);
+        const cropY = Math.max(0, boundingBox.y - padding);
+        const cropWidth = Math.min(videoWidth - cropX, boundingBox.width + padding * 2);
+        const cropHeight = Math.min(videoHeight - cropY, boundingBox.height + padding * 2);
+        
+        // Set canvas to face crop size
+        const analysisSize = 160; // Use consistent size for analysis
+        canvas.width = analysisSize;
+        canvas.height = analysisSize;
+        
+        // Draw only the face crop region to canvas
+        ctx.drawImage(
+          video, 
+          cropX, cropY, cropWidth, cropHeight,  // Source region (face)
+          0, 0, analysisSize, analysisSize       // Destination (canvas)
+        );
 
-        const imageData = ctx.getImageData(0, 0, width, height);
+        const imageData = ctx.getImageData(0, 0, analysisSize, analysisSize);
         const brightness = calculateBrightness(imageData);
-        const sharpness = calculateSharpness(imageData, width, height);
+        const sharpness = calculateSharpness(imageData, analysisSize, analysisSize);
 
+        // Calculate face size ratio relative to full video frame
         const faceSizeRatio =
-          (boundingBox.width * boundingBox.height) / (width * height);
+          (boundingBox.width * boundingBox.height) / (videoWidth * videoHeight);
 
         // Check if pose matches current target
         const isPoseMatched = checkPoseMatch(
@@ -771,14 +821,17 @@ const FaceCapture = ({
               </div>
 
               {/* Loading */}
-              {(cameraState === "initializing" || !modelsLoaded) && (
+              {cameraState === "initializing" && (
                 <div className={styles.loadingOverlay}>
                   <div className={styles.spinner}></div>
-                  <p>
-                    {!modelsLoaded
-                      ? "Loading face detection..."
-                      : "Starting camera..."}
-                  </p>
+                  <p>Starting camera...</p>
+                </div>
+              )}
+              
+              {cameraState === "ready" && !modelsLoaded && (
+                <div className={styles.loadingOverlay}>
+                  <div className={styles.spinner}></div>
+                  <p>Loading face detection models...</p>
                 </div>
               )}
 
@@ -909,7 +962,7 @@ const FaceCapture = ({
   );
 };
 
-// Quality check item component
+// Quality check item component with green/red styling
 const QualityItem = ({ check, label, icon }) => (
   <div
     className={`${styles.qualityItem} ${
@@ -921,7 +974,9 @@ const QualityItem = ({ check, label, icon }) => (
       <span className={styles.qualityLabel}>{label}</span>
       <span className={styles.qualityMessage}>{check.message}</span>
     </div>
-    <span className={styles.qualityStatus}>{check.passed ? "✓" : ""}</span>
+    <span className={`${styles.qualityStatus} ${check.passed ? styles.statusPassed : styles.statusFailed}`}>
+      {check.passed ? "✓" : "✗"}
+    </span>
   </div>
 );
 

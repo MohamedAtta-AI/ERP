@@ -225,13 +225,18 @@
   border-radius: 8px;
   font-size: 0.8rem;
   background-color: #fef2f2;
-  border: 1px solid #fecaca;
+  border: 2px solid #fca5a5;
   transition: all 0.2s;
 }
 
-.qualityItem.passed {
+.qualityPassed {
   background-color: #f0fdf4;
-  border-color: #bbf7d0;
+  border-color: #4ade80;
+}
+
+.qualityFailed {
+  background-color: #fef2f2;
+  border-color: #f87171;
 }
 
 .qualityIcon {
@@ -261,23 +266,35 @@
   text-overflow: ellipsis;
 }
 
-.qualityItem.passed .qualityMessage {
+.qualityPassed .qualityMessage {
   color: #16a34a;
+  font-weight: 500;
+}
+
+.qualityFailed .qualityMessage {
+  color: #dc2626;
 }
 
 .qualityStatus {
-  font-weight: 600;
-  font-size: 1rem;
-  width: 20px;
-  text-align: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
 }
 
-.qualityItem.passed .qualityStatus {
-  color: #22c55e;
+.statusPassed {
+  color: #ffffff;
+  background-color: #22c55e;
 }
 
-.qualityItem.failed .qualityStatus {
-  color: #d1d5db;
+.statusFailed {
+  color: #ffffff;
+  background-color: #ef4444;
 }
 
 /* Multi-Angle Progress (Registration) */

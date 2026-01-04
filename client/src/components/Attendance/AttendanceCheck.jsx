@@ -1,132 +1,231 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import FaceCapture from "../FaceCapture/FaceCapture";
 import { verifyAttendance, checkIn } from "../../services/api";
-import Button from "../Common/Button";
-import ErrorMessage from "../Common/ErrorMessage";
 import styles from "./AttendanceCheck.module.css";
 
+/**
+ * Rapid Attendance Check Component
+ * 
+ * Features:
+ * - Stays on same screen after recognition
+ * - Shows result overlay briefly, then auto-resets
+ * - Ready for next person immediately without touching anything
+ * - Only shows result when high confidence + anti-spoofing passed
+ */
 const AttendanceCheck = ({ onBack }) => {
-  const [step, setStep] = useState("capture"); // capture, verifying, success, error
-  const [error, setError] = useState(null);
-  const [employeeData, setEmployeeData] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [result, setResult] = useState(null); // { success: boolean, data: object, message: string }
+  const [recentCheckins, setRecentCheckins] = useState([]); // Last few check-ins for display
+  const [captureKey, setCaptureKey] = useState(0); // Key to force FaceCapture remount
+  const resultTimeoutRef = useRef(null);
 
-  const handleCapture = async (imageFile) => {
-    setStep("verifying");
-    setError(null);
+  // Auto-clear result after display and reset capture
+  useEffect(() => {
+    if (result) {
+      resultTimeoutRef.current = setTimeout(() => {
+        setResult(null);
+        // Force FaceCapture to remount for next person
+        setCaptureKey((k) => k + 1);
+      }, 3500); // Show result for 3.5 seconds then auto-clear
+    }
+    return () => {
+      if (resultTimeoutRef.current) {
+        clearTimeout(resultTimeoutRef.current);
+      }
+    };
+  }, [result]);
+
+  const handleCapture = useCallback(async (imageFile) => {
+    if (isProcessing) return;
+    
+    setIsProcessing(true);
+    setResult(null);
 
     try {
-      // Verify face
+      // Verify face with backend (includes anti-spoofing check)
       const verifyResult = await verifyAttendance(imageFile);
 
       if (verifyResult && verifyResult.match_found) {
-        setEmployeeData(verifyResult);
+        // Only show success if anti-spoofing passed (is_real = true)
+        if (verifyResult.is_real === false) {
+          setResult({
+            success: false,
+            message: "Spoofing detected. Please use your real face.",
+            data: null,
+          });
+          setIsProcessing(false);
+          return;
+        }
+
+        // High confidence check - don't show result for low confidence matches
+        const confidence = verifyResult.similarity_score || 0;
+        if (confidence < 0.65) {
+          setResult({
+            success: false,
+            message: "Low confidence match. Please try again.",
+            data: null,
+          });
+          setIsProcessing(false);
+          return;
+        }
 
         // Record check-in
         try {
-          await checkIn(verifyResult.employee_id);
+          await checkIn(verifyResult.person_id || verifyResult.employee_id);
         } catch (checkInErr) {
-          console.error("Check-in error:", checkInErr);
-          // Continue even if check-in fails - we've verified the person
+          console.warn("Check-in recording failed:", checkInErr);
+          // Continue - verification was successful
         }
 
-        setStep("success");
+        // Add to recent check-ins
+        const checkinRecord = {
+          id: Date.now(),
+          name: verifyResult.full_name,
+          personId: verifyResult.person_id || verifyResult.employee_id,
+          time: new Date().toLocaleTimeString(),
+          confidence: confidence,
+        };
+
+        setRecentCheckins((prev) => [checkinRecord, ...prev].slice(0, 5));
+
+        setResult({
+          success: true,
+          message: `Welcome, ${verifyResult.full_name}!`,
+          data: verifyResult,
+        });
       } else {
-        setError("Face not recognized. Have you registered yet?");
-        setStep("capture");
+        setResult({
+          success: false,
+          message: "Face not recognized. Please register first.",
+          data: null,
+        });
       }
     } catch (err) {
       console.error("Verification error:", err);
-      // Check if it's a "not found" error (no registered face)
       const errorMsg = err.message || "";
-      if (errorMsg.includes("not recognized") || errorMsg.includes("404")) {
-        setError(
-          "Face not recognized. Please register first using 'New Registration'."
-        );
+      
+      if (errorMsg.includes("spoof") || errorMsg.includes("real")) {
+        setResult({
+          success: false,
+          message: "Spoofing detected. Use your real face.",
+          data: null,
+        });
+      } else if (errorMsg.includes("not recognized") || errorMsg.includes("404")) {
+        setResult({
+          success: false,
+          message: "Face not recognized. Please register first.",
+          data: null,
+        });
       } else {
-        setError(errorMsg || "Verification failed. Please try again.");
+        setResult({
+          success: false,
+          message: "Verification failed. Please try again.",
+          data: null,
+        });
       }
-      setStep("capture");
+    } finally {
+      setIsProcessing(false);
     }
-  };
+  }, [isProcessing]);
 
-  const handleRetry = () => {
-    setStep("capture");
-    setError(null);
-    setEmployeeData(null);
-  };
-
-  if (step === "verifying") {
-    return (
-      <div className={styles.container}>
-        <div className={styles.verifyingContainer}>
-          <div className={styles.spinner}></div>
-          <p className={styles.verifyingMessage}>Verifying your identity...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "success" && employeeData) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.successContainer}>
-          <div className={styles.successIcon}>
-            <svg
-              width="64"
-              height="64"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-              <polyline points="22 4 12 14.01 9 11.01"></polyline>
-            </svg>
-          </div>
-          <h2 className={styles.successTitle}>Check-in Successful!</h2>
-          <div className={styles.employeeInfo}>
-            <p className={styles.employeeName}>{employeeData.full_name}</p>
-            <p className={styles.employeeId}>ID: {employeeData.employee_id}</p>
-            {employeeData.department && (
-              <p className={styles.department}>{employeeData.department}</p>
-            )}
-            <p className={styles.checkInTime}>
-              Checked in at {new Date().toLocaleTimeString()}
-            </p>
-            {employeeData.similarity_score && (
-              <p className={styles.confidence}>
-                Match confidence:{" "}
-                {(employeeData.similarity_score * 100).toFixed(1)}%
-              </p>
-            )}
-          </div>
-          <Button variant="primary" onClick={handleRetry} fullWidth>
-            Check In Another Person
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const handleCancel = useCallback(() => {
+    if (onBack) {
+      onBack();
+    }
+  }, [onBack]);
 
   return (
     <div className={styles.container}>
-      <h2 className={styles.title}>Attendance Check-In</h2>
-      <p className={styles.subtitle}>
-        Position your face in the frame for verification
-      </p>
+      {/* Header */}
+      <div className={styles.header}>
+        <button className={styles.backButton} onClick={handleCancel}>
+          ← Back
+        </button>
+        <h1 className={styles.title}>Attendance Check-In</h1>
+        <div className={styles.headerSpacer} />
+      </div>
 
-      {error && (
-        <div className={styles.errorWrapper}>
-          <ErrorMessage message={error} onDismiss={() => setError(null)} />
+      {/* Main Content */}
+      <div className={styles.mainContent}>
+        {/* Face Capture Area */}
+        <div className={styles.captureSection}>
+          <FaceCapture
+            key={captureKey}
+            onCapture={handleCapture}
+            onCancel={handleCancel}
+            requiresLiveness={false}
+            mode="attendance"
+          />
+
+          {/* Processing Overlay */}
+          {isProcessing && (
+            <div className={styles.processingOverlay}>
+              <div className={styles.spinner} />
+              <span>Verifying...</span>
+            </div>
+          )}
+
+          {/* Result Overlay - shows briefly then auto-clears */}
+          {result && (
+            <div 
+              className={`${styles.resultOverlay} ${
+                result.success ? styles.resultSuccess : styles.resultError
+              }`}
+            >
+              <div className={styles.resultIcon}>
+                {result.success ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="15" y1="9" x2="9" y2="15" />
+                    <line x1="9" y1="9" x2="15" y2="15" />
+                  </svg>
+                )}
+              </div>
+              <div className={styles.resultMessage}>{result.message}</div>
+              {result.success && result.data && (
+                <div className={styles.resultDetails}>
+                  <span className={styles.personId}>
+                    ID: {result.data.person_id || result.data.employee_id}
+                  </span>
+                  <span className={styles.checkTime}>
+                    {new Date().toLocaleTimeString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
 
-      <FaceCapture
-        onCapture={handleCapture}
-        onCancel={onBack}
-        requiresLiveness={false}
-        mode="attendance"
-      />
+        {/* Recent Check-ins Sidebar */}
+        <div className={styles.sidebar}>
+          <h3 className={styles.sidebarTitle}>Recent Check-ins</h3>
+          {recentCheckins.length === 0 ? (
+            <p className={styles.noCheckins}>No check-ins yet</p>
+          ) : (
+            <ul className={styles.checkinList}>
+              {recentCheckins.map((checkin) => (
+                <li key={checkin.id} className={styles.checkinItem}>
+                  <div className={styles.checkinInfo}>
+                    <span className={styles.checkinName}>{checkin.name}</span>
+                    <span className={styles.checkinId}>{checkin.personId}</span>
+                  </div>
+                  <span className={styles.checkinTime}>{checkin.time}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Instructions */}
+      <div className={styles.instructions}>
+        <p>Position your face in the frame. Check-in is automatic when your face is recognized.</p>
+      </div>
     </div>
   );
 };

@@ -95,9 +95,11 @@ flowchart TD
     Match -->|No| Reject[Reject]
 ```
 
+
+
 ## File Structure
 
-```
+```javascript
 ERP/
 ├── client/
 │   ├── package.json               # React dependencies and scripts
@@ -201,6 +203,8 @@ ERP/
 └── docker-compose.yml            # PostgreSQL + pgvector setup (optional)
 ```
 
+
+
 ## Implementation Phases
 
 ### Phase 1: Foundation & Database Setup
@@ -270,8 +274,8 @@ ERP/
 **Endpoints to implement:**
 
 - `POST /api/v1/employees/register` - Create employee with auto-generated 5-character ID
-  - Request body: full_name, email, department, phone (optional), position (optional)
-  - Response: employee_id (5-character code), full_name, email, department, created_at
+- Request body: full_name, email, department, phone (optional), position (optional)
+- Response: employee_id (5-character code), full_name, email, department, created_at
 - `POST /api/v1/employees/{employee_id}/enroll-face` - Upload face, generate embedding
 - `GET /api/v1/employees/{employee_id}` - Get employee details
 - `POST /api/v1/attendance/verify` - Face verification with vector search
@@ -297,10 +301,10 @@ ERP/
 - CORS configuration for client access
 - Comprehensive error handling
 - **Employee Registration**: Generate unique 5-character ID using `employee_id_generator.py`
-  - Use uppercase letters (A-Z) and numbers (0-9) = 36 characters
-  - Total combinations: 36^5 = 60,466,176 possible IDs
-  - Check database for uniqueness before returning
-  - Return generated ID in response for display to user
+- Use uppercase letters (A-Z) and numbers (0-9) = 36 characters
+- Total combinations: 36^5 = 60,466,176 possible IDs
+- Check database for uniqueness before returning
+- Return generated ID in response for display to user
 
 ### Phase 5: React App Setup & Client-Side Face Detection UI
 
@@ -426,11 +430,11 @@ ERP/
 
 1. User fills RegistrationForm component with employee data:
 
-   - Full Name (required)
-   - Email (required, validated)
-   - Department (required, dropdown or text input)
-   - Phone (optional)
-   - Position/Job Title (optional)
+- Full Name (required)
+- Email (required, validated)
+- Department (required, dropdown or text input)
+- Phone (optional)
+- Position/Job Title (optional)
 
 2. Submit form to `/api/v1/employees/register`
 3. Server generates unique 5-character employee ID (e.g., "A1B2C")
@@ -504,6 +508,8 @@ dependencies = [
 ]
 ```
 
+
+
 ### Client (package.json)
 
 ```json
@@ -552,6 +558,8 @@ MAX_IMAGE_SIZE_MB=5
 # Security
 RATE_LIMIT_PER_MINUTE=60
 ```
+
+
 
 ## Database Schema
 
@@ -605,32 +613,30 @@ CREATE INDEX idx_attendance_employee ON attendance(employee_id);
 CREATE INDEX idx_attendance_date ON attendance(check_in_time);
 ```
 
+
+
 ## Technical Considerations
 
 1. **Face Detection Performance**: MediaPipe should achieve 30fps+ on modern devices. Use `requestAnimationFrame` for smooth rendering.
-
 2. **Embedding Generation**: SFace model typically generates embeddings in <500ms. Cache model loading to avoid reload on each request.
-
 3. **Vector Search**: IVFFlat index with 100 lists provides good balance between speed and accuracy for <10K employees. Adjust lists parameter as data grows.
-
 4. **Image Storage**: Store images with employee_id and timestamp in filename. Implement cleanup policy for old attendance images.
-
 5. **Error Handling**: Comprehensive error messages for:
 
-   - No face detected
-   - Multiple faces detected
-   - Poor image quality
-   - No match found (attendance)
-   - Database errors
-   - Model loading errors
+- No face detected
+- Multiple faces detected
+- Poor image quality
+- No match found (attendance)
+- Database errors
+- Model loading errors
 
 6. **Security**: 
 
-   - Validate all inputs
-   - Rate limiting on sensitive endpoints
-   - CORS configuration
-   - Image size/format validation
-   - SQL injection prevention (SQLAlchemy ORM)
+- Validate all inputs
+- Rate limiting on sensitive endpoints
+- CORS configuration
+- Image size/format validation
+- SQL injection prevention (SQLAlchemy ORM)
 
 ## Development Order
 
@@ -639,7 +645,3 @@ CREATE INDEX idx_attendance_date ON attendance(check_in_time);
 3. **Phase 5**: React app setup and basic UI structure
 4. **Phase 6**: MediaPipe integration with React hooks
 5. **Phase 7-9**: Quality checks, liveness, auto-capture (as React hooks)
-6. **Phase 10**: Registration and attendance components, connect to API
-7. **Phase 11-12**: Testing and documentation
-
-This order allows testing backend independently before client integration. React hooks provide clean separation of concerns and reusable logic.

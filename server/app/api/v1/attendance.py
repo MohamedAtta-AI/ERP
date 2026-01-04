@@ -1,245 +1,317 @@
-"""Attendance endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from datetime import datetime
-from typing import Optional, List
+"""
+Attendance API endpoints.
 
-from ...database import get_db
-from ...models.employee import Employee
-from ...models.attendance import Attendance
-from ...models.face_embedding import FaceEmbedding
-from ...schemas.attendance import AttendanceCheckIn, AttendanceCheckOut, AttendanceResponse, AttendanceHistoryResponse
-from ...schemas.face import FaceVerifyResponse
-from ...services.face_recognition import FaceRecognitionService
-from ...services.vector_search import VectorSearchService
-from ...services.image_processing import process_face_crop_for_recognition
-from ...utils.validators import validate_image_file, validate_image_size
-from ...config import settings
-from pgvector.sqlalchemy import Vector
+Handles face verification and check-in/check-out recording.
+"""
+
+import io
 import numpy as np
+from datetime import date, datetime
+from typing import Optional
+from uuid import UUID
 
-router = APIRouter(prefix="/attendance", tags=["attendance"])
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 
-# Lazy-loaded services
-_face_service = None
-_vector_service = None
+from server.app.database import get_session
+from server.app.schemas.attendance import (
+    AttendanceVerifyResponse,
+    AttendanceCheckInRequest,
+    AttendanceCheckInResponse,
+    AttendanceCheckOutRequest,
+    AttendanceCheckOutResponse,
+    AttendanceRead,
+)
+from server.db.models import Person, Attendance, AttendanceStatus, Location
+from server.services.face_recognition import FaceRecognitionService
+from server.config import config
 
-def get_face_service():
-    """Get or create face recognition service instance."""
-    global _face_service
-    if _face_service is None:
-        _face_service = FaceRecognitionService()  # FaceNet512 via DeepFace
-    return _face_service
+router = APIRouter()
 
-def get_vector_service():
-    """Get or create vector search service instance."""
-    global _vector_service
-    if _vector_service is None:
-        _vector_service = VectorSearchService()
-    return _vector_service
+# Initialize face recognition service
+face_service = FaceRecognitionService()
 
 
-@router.post("/verify", response_model=FaceVerifyResponse)
+@router.post("/verify", response_model=AttendanceVerifyResponse)
 async def verify_attendance(
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    file: UploadFile = File(..., description="Face image for verification"),
+    location_id: Optional[UUID] = Form(None),
+    shift_id: Optional[UUID] = Form(None),
+    session: AsyncSession = Depends(get_session),
 ):
-    """Verify face and return employee information."""
-    print(f"[VERIFY] Received verification request")
+    """
+    Verify a face against enrolled persons.
     
-    # Validate image
-    validate_image_file(file)
-    await validate_image_size(file)
+    Performs:
+    1. Face detection and embedding extraction
+    2. Anti-spoofing check (is_real)
+    3. Vector similarity search against enrolled faces
+    4. Returns match if similarity >= threshold
+    """
+    # Read and validate image
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
     
-    # Read image data (should be pre-cropped 160x160 face from frontend)
-    image_data = await file.read()
-    print(f"[VERIFY] Received face crop, size: {len(image_data)} bytes")
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:  # 5MB limit
+        raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
     
-    # Process pre-cropped face (validates and converts format)
-    processed_image = process_face_crop_for_recognition(image_data)
-    print(f"[VERIFY] Processed face crop shape: {processed_image.shape}")
-
-    face_service = get_face_service()
+    # Convert to numpy array
     try:
-        query_embedding, is_real = face_service.generate_embedding(
-            processed_image, 
-        )
+        import cv2
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        if is_real:
-            print(
-                f"[VERIFY] Anti-spoof passed: {is_real}"
-            )
-        
-        print(f"[VERIFY] Generated embedding shape: {query_embedding.shape}")
-    except ValueError as e:
-        # Handle anti-spoofing failures and other validation errors
-        error_msg = str(e)
-        if "anti-spoofing failed" in error_msg.lower() or "spoof" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Liveness check failed (possible spoof). Please retry.",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_msg,
-        )
-    except HTTPException:
-        raise
+        if image is None:
+            raise HTTPException(status_code=400, detail="Invalid image format")
     except Exception as e:
-        print(f"[VERIFY] Error during face recognition/anti-spoofing: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Face recognition service error: {str(e)}",
+        raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
+    
+    # Generate embedding and check anti-spoofing
+    try:
+        embedding, is_real = face_service.generate_embedding(image)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Anti-spoofing check - reject if spoofing detected
+    if is_real is False:
+        return AttendanceVerifyResponse(
+            match_found=False,
+            is_real=False,
+            message="Spoofing detected. Please use your real face.",
         )
     
-    # Check how many embeddings exist in database
-    count_result = await db.execute(select(FaceEmbedding))
-    embeddings = count_result.scalars().all()
-    print(f"[VERIFY] Total embeddings in database: {len(embeddings)}")
-    
-    # Search for matching face
-    vector_service = get_vector_service()
-    match = await vector_service.find_similar_face(
-        db, query_embedding, threshold=settings.FACE_SIMILARITY_THRESHOLD
+    # Query all persons with face embeddings
+    stmt = select(Person).where(
+        and_(
+            Person.face_embedding.isnot(None),
+            Person.status == "active",
+        )
     )
+    result = await session.execute(stmt)
+    persons = result.scalars().all()
     
-    print(f"[VERIFY] Match result: {match}")
-    
-    if not match:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Face not recognized"
+    if not persons:
+        return AttendanceVerifyResponse(
+            match_found=False,
+            is_real=is_real,
+            message="No enrolled faces found",
         )
     
-    # Get employee details
-    result = await db.execute(
-        select(Employee).where(Employee.id == match["employee_id"])
-    )
-    employee = result.scalar_one_or_none()
+    # Find best match using face recognition service
+    candidate_embeddings = [np.array(p.face_embedding, dtype=np.float32) for p in persons]
+    best_idx, best_score = face_service.find_best_match(embedding, candidate_embeddings)
     
-    if not employee:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found"
+    if best_idx is not None:
+        matched_person = persons[best_idx]
+        return AttendanceVerifyResponse(
+            match_found=True,
+            person_id=matched_person.id,
+            full_name=matched_person.full_name,
+            department=matched_person.department,
+            similarity_score=best_score,
+            is_real=is_real,
+            message="Face verified successfully",
         )
     
-    return FaceVerifyResponse(
-        employee_id=employee.employee_id,
-        full_name=employee.full_name,
-        email=employee.email,
-        department=employee.department,
-        similarity_score=match["similarity"],
-        match_found=True
+    return AttendanceVerifyResponse(
+        match_found=False,
+        similarity_score=best_score if best_score > 0 else None,
+        is_real=is_real,
+        message="Face not recognized",
     )
 
 
-@router.post("/check-in", response_model=AttendanceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/check-in", response_model=AttendanceCheckInResponse)
 async def check_in(
-    check_in_data: AttendanceCheckIn,
-    db: AsyncSession = Depends(get_db)
+    request: AttendanceCheckInRequest,
+    session: AsyncSession = Depends(get_session),
 ):
-    """Record employee check-in."""
-    # Get employee
-    result = await db.execute(
-        select(Employee).where(Employee.employee_id == check_in_data.employee_id)
-    )
-    employee = result.scalar_one_or_none()
+    """
+    Record a check-in for a verified person.
     
-    if not employee:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee with ID {check_in_data.employee_id} not found"
+    Should be called after successful face verification.
+    Creates or updates attendance record for today.
+    """
+    person_id = request.person_id
+    
+    # Verify person exists
+    stmt = select(Person).where(Person.id == person_id)
+    result = await session.execute(stmt)
+    person = result.scalar_one_or_none()
+    
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    
+    today = date.today()
+    now = datetime.utcnow()
+    
+    # Check for existing attendance today
+    stmt = select(Attendance).where(
+        and_(
+            Attendance.person_id == person_id,
+            Attendance.attendance_date == today,
         )
-    
-    # Create attendance record
-    attendance = Attendance(
-        employee_id=employee.id,
-        check_in_time=datetime.now(),
-        location=check_in_data.location,
     )
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
     
-    db.add(attendance)
-    await db.commit()
-    await db.refresh(attendance)
+    if existing:
+        if existing.check_in:
+            # Already checked in - return existing record
+            return AttendanceCheckInResponse(
+                attendance_id=existing.id,
+                person_id=person_id,
+                full_name=person.full_name,
+                check_in_time=existing.check_in,
+                message="Already checked in today",
+            )
+        else:
+            # Update existing record
+            existing.check_in = now
+            existing.status = AttendanceStatus.PRESENT
+            existing.updated_at = now
+            session.add(existing)
+            attendance = existing
+    else:
+        # Create new attendance record
+        attendance = Attendance(
+            person_id=person_id,
+            location_id=request.location_id,
+            shift_id=request.shift_id,
+            attendance_date=today,
+            check_in=now,
+            status=AttendanceStatus.PRESENT,
+        )
+        session.add(attendance)
     
-    return attendance
+    await session.flush()
+    
+    # Get location name if provided
+    location_name = None
+    if request.location_id:
+        loc_result = await session.execute(
+            select(Location).where(Location.id == request.location_id)
+        )
+        location = loc_result.scalar_one_or_none()
+        if location:
+            location_name = location.name
+    
+    return AttendanceCheckInResponse(
+        attendance_id=attendance.id,
+        person_id=person_id,
+        full_name=person.full_name,
+        check_in_time=now,
+        location=location_name,
+        message="Check-in recorded successfully",
+    )
 
 
-@router.post("/check-out", response_model=AttendanceResponse)
+@router.post("/check-out", response_model=AttendanceCheckOutResponse)
 async def check_out(
-    check_out_data: AttendanceCheckOut,
-    db: AsyncSession = Depends(get_db)
+    request: AttendanceCheckOutRequest,
+    session: AsyncSession = Depends(get_session),
 ):
-    """Record employee check-out."""
-    # Get employee
-    result = await db.execute(
-        select(Employee).where(Employee.employee_id == check_out_data.employee_id)
-    )
-    employee = result.scalar_one_or_none()
+    """
+    Record a check-out for a person.
     
-    if not employee:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee with ID {check_out_data.employee_id} not found"
+    Finds today's attendance record and updates check_out time.
+    """
+    person_id = request.person_id
+    today = date.today()
+    now = datetime.utcnow()
+    
+    # Find today's attendance
+    stmt = select(Attendance).where(
+        and_(
+            Attendance.person_id == person_id,
+            Attendance.attendance_date == today,
         )
-    
-    # Find today's check-in without check-out
-    result = await db.execute(
-        select(Attendance)
-        .where(Attendance.employee_id == employee.id)
-        .where(Attendance.check_out_time.is_(None))
-        .order_by(desc(Attendance.check_in_time))
-        .limit(1)
     )
+    result = await session.execute(stmt)
     attendance = result.scalar_one_or_none()
     
     if not attendance:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active check-in found"
+            status_code=404,
+            detail="No check-in found for today. Please check in first.",
         )
     
-    # Update check-out time
-    attendance.check_out_time = datetime.now()
-    await db.commit()
-    await db.refresh(attendance)
+    if not attendance.check_in:
+        raise HTTPException(
+            status_code=400,
+            detail="Must check in before checking out",
+        )
     
-    return attendance
+    # Update check-out
+    attendance.check_out = now
+    attendance.updated_at = now
+    session.add(attendance)
+    
+    # Calculate total hours
+    total_hours = None
+    if attendance.check_in:
+        delta = now - attendance.check_in
+        total_hours = round(delta.total_seconds() / 3600, 2)
+    
+    return AttendanceCheckOutResponse(
+        attendance_id=attendance.id,
+        person_id=person_id,
+        check_out_time=now,
+        total_hours=total_hours,
+        message="Check-out recorded successfully",
+    )
 
 
-@router.get("/history", response_model=List[AttendanceHistoryResponse])
+@router.get("/history", response_model=list[AttendanceRead])
 async def get_attendance_history(
-    employee_id: Optional[str] = Query(None, description="Filter by employee ID"),
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db)
+    person_id: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
 ):
-    """Get attendance history."""
-    query = select(
-        Attendance,
-        Employee.full_name,
-        Employee.employee_id
-    ).join(Employee, Attendance.employee_id == Employee.id)
+    """
+    Get attendance history with optional filters.
+    """
+    stmt = select(Attendance).options(
+        selectinload(Attendance.person),
+        selectinload(Attendance.location),
+        selectinload(Attendance.shift),
+    )
     
-    if employee_id:
-        query = query.where(Employee.employee_id == employee_id)
+    conditions = []
+    if person_id:
+        conditions.append(Attendance.person_id == person_id)
+    if start_date:
+        conditions.append(Attendance.attendance_date >= start_date)
+    if end_date:
+        conditions.append(Attendance.attendance_date <= end_date)
     
-    query = query.order_by(desc(Attendance.check_in_time)).limit(limit).offset(offset)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
     
-    result = await db.execute(query)
-    rows = result.all()
+    stmt = stmt.order_by(Attendance.attendance_date.desc()).limit(limit)
+    
+    result = await session.execute(stmt)
+    attendances = result.scalars().all()
     
     return [
-        AttendanceHistoryResponse(
-            id=attendance.id,
-            employee_id=attendance.employee_id,
-            employee_name=full_name,
-            employee_code=emp_id,
-            check_in_time=attendance.check_in_time,
-            check_out_time=attendance.check_out_time,
-            location=attendance.location,
-            created_at=attendance.created_at
+        AttendanceRead(
+            id=a.id,
+            person_id=a.person_id,
+            person_name=a.person.full_name if a.person else "Unknown",
+            attendance_date=a.attendance_date,
+            check_in=a.check_in,
+            check_out=a.check_out,
+            status=a.status.value if isinstance(a.status, AttendanceStatus) else a.status,
+            location_name=a.location.name if a.location else None,
+            shift_name=a.shift.name if a.shift else None,
+            similarity_score=a.similarity_score,
+            is_real=a.is_real,
         )
-        for attendance, full_name, emp_id in rows
+        for a in attendances
     ]
+

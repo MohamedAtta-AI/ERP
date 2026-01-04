@@ -1,22 +1,67 @@
-version: "3.8"
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: erp_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: erp_user
-      POSTGRES_PASSWORD: erp_password
-      POSTGRES_DB: erp_db
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_password}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U erp_user -d erp_db"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-erp_user} -d ${POSTGRES_DB:-erp_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: erp_backend
+    restart: unless-stopped
+    environment:
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_password}@postgres:5432/${POSTGRES_DB:-erp_db}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      RECOGNITION_MODEL_NAME: ${RECOGNITION_MODEL_NAME:-Facenet}
+      EMBEDDING_SIZE: ${EMBEDDING_SIZE:-128}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.60}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DEEPFACE_HOME: /app/server
+      CUDA_VISIBLE_DEVICES: ""
+      TF_CPP_MIN_LOG_LEVEL: "2"
+      TF_ENABLE_ONEDNN_OPTS: "0"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./server/weights:/app/server/weights:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: erp_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

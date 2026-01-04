@@ -15,11 +15,11 @@ import asyncpg
 from pathlib import Path
 import sys
 
-# Add parent directory to path to import config
+# Add parent directory to path to import settings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "server"))
 
-from app.config import settings
+from app.settings import settings
 
 
 async def migrate_embeddings():

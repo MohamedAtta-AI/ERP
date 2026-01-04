@@ -1,0 +1,52 @@
+# Backend Dockerfile for ERP FastAPI Application
+FROM python:3.12-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1 \
+    DEEPFACE_HOME=/app/server \
+    CUDA_VISIBLE_DEVICES="" \
+    TF_CPP_MIN_LOG_LEVEL="2" \
+    TF_ENABLE_ONEDNN_OPTS="0"
+
+# Install system dependencies for OpenCV, DeepFace, and PostgreSQL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy application code
+COPY server/ ./server/
+COPY start_backend.py setup_db.py ./
+
+# Create data directories
+RUN mkdir -p /app/data/uploads
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["uv", "run", "python", "start_backend.py"]
+

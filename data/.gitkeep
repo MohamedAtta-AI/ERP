@@ -1,0 +1,6 @@
+# Data directory for OnTime ERP
+# Subdirectories:
+#   - postgres/  - PostgreSQL database files (Docker volume)
+#   - uploads/   - Uploaded files (face images, documents)
+
+
