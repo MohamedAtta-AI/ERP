@@ -6,7 +6,7 @@ Handles person registration and face enrollment.
 
 import io
 import numpy as np
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +20,9 @@ from server.app.schemas.person import (
     FaceEnrollResponse,
 )
 from server.app.services.person_id_generator import generate_person_id, validate_person_id
-from server.db.models import Person, PersonStatus
+from server.db.models import Person, PersonStatus, Role
 from server.services.face_recognition import FaceRecognitionService
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
@@ -128,12 +129,16 @@ async def get_person(
     if not validate_person_id(person_id):
         raise HTTPException(status_code=400, detail="Invalid person ID format")
     
-    stmt = select(Person).where(Person.id == person_id)
+    # Load person with role relationship
+    stmt = select(Person).options(selectinload(Person.role)).where(Person.id == person_id)
     result = await session.execute(stmt)
     person = result.scalar_one_or_none()
     
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    
+    # Get role name from relationship
+    role_name = person.role.name if person.role else None
     
     return PersonRead(
         person_id=person.id,
@@ -146,6 +151,7 @@ async def get_person(
         department=person.department,
         position=person.position,
         status=person.status.value if isinstance(person.status, PersonStatus) else person.status,
+        role=role_name,
         has_face_enrolled=person.face_embedding is not None,
         created_at=person.created_at,
     )
@@ -259,4 +265,45 @@ async def update_person(
         has_face_enrolled=person.face_embedding is not None,
         created_at=person.created_at,
     )
+
+
+@router.get("", response_model=List[PersonRead])
+async def list_persons(
+    status_filter: Optional[str] = None,
+    role: Optional[str] = None,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
+):
+    """List all persons with optional filters."""
+    stmt = select(Person).options(selectinload(Person.role))
+    
+    if status_filter:
+        stmt = stmt.where(Person.status == status_filter)
+    
+    if role:
+        stmt = stmt.join(Role).where(Role.name == role)
+    
+    stmt = stmt.order_by(Person.full_name).limit(limit)
+    
+    result = await session.execute(stmt)
+    persons = result.scalars().all()
+    
+    return [
+        PersonRead(
+            person_id=person.id,
+            full_name=person.full_name,
+            identity_number=person.identity_number,
+            dob=person.dob,
+            sex=person.sex,
+            phone=person.phone,
+            email=person.email,
+            department=person.department,
+            position=person.position,
+            status=person.status.value if isinstance(person.status, PersonStatus) else person.status,
+            role=person.role.name if person.role else None,
+            has_face_enrolled=person.face_embedding is not None,
+            created_at=person.created_at,
+        )
+        for person in persons
+    ]
 

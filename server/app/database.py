@@ -14,7 +14,13 @@ from server.config import config
 
 # Import models to ensure they're registered with SQLModel.metadata
 # This must happen before init_db() is called
-from server.db.models import Person, Attendance, Role, Location, Shift  # noqa: F401
+from server.db.models import (  # noqa: F401
+    Person, Attendance, Role, Location, Shift,
+    Skill, PersonSkill, SkillLocationPrice,
+    Assignment, Document, OvertimeRequest,
+    SalaryComponent, EmployeeComponent,
+    PayrollPeriod, PayrollRun, PayrollRunEmployee, PayrollRunLine,
+)
 
 
 # Create async engine

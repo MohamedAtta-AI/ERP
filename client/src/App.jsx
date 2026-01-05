@@ -1,8 +1,40 @@
 import { useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Dashboard from "./components/Dashboard/Dashboard";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/Common/ProtectedRoute";
+import LoginPage from "./components/Auth/LoginPage";
+import MainDashboard from "./components/Dashboard/MainDashboard";
 import AttendancePage from "./components/Attendance/AttendancePage";
+import RegistrationPage from "./components/Registration/RegistrationPage";
+import AdminPage from "./components/Admin/AdminPage";
+import LoadingSpinner from "./components/Common/LoadingSpinner";
 import { faceDetectionService } from "./services/faceDetectionService";
+
+// Role-based redirect component
+const RoleBasedRedirect = () => {
+  const { user, loading } = useAuth();
+  
+  // Wait for auth state to be restored from localStorage
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh'
+      }}>
+        <LoadingSpinner size="large" message="Loading session..." />
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  // Both admin and supervisor go to the same dashboard
+  return <Navigate to="/dashboard" replace />;
+};
 
 function App() {
   // Preload face detection models on app startup
@@ -13,12 +45,52 @@ function App() {
   }, []);
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/attendance" element={<AttendancePage />} />
-      </Routes>
-    </Router>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login" element={<LoginPage />} />
+          
+          {/* Protected routes - admin and supervisor only */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+                <MainDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+                <AttendancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+                <RegistrationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Default redirect */}
+          <Route path="/" element={<RoleBasedRedirect />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 

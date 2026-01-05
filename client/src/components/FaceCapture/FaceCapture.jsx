@@ -7,8 +7,8 @@ const QUALITY_THRESHOLDS = {
   BRIGHTNESS_MIN: 60,
   BRIGHTNESS_MAX: 200,
   SHARPNESS_MIN: 1.5,
-  FACE_SIZE_MIN: 0.05,
-  FACE_SIZE_MAX: 0.5,
+  FACE_SIZE_MIN: 0.18, // Face must be much closer for reliable recognition
+  FACE_SIZE_MAX: 0.50,
   // For center pose
   YAW_MAX: 15,
   PITCH_MAX: 15,
@@ -27,6 +27,15 @@ const AUTO_CAPTURE = {
   COOLDOWN: 1500,
 };
 
+// Target rectangle configuration (where face should be positioned)
+// Values are percentages of the video dimensions
+const TARGET_RECT = {
+  x: 0.2,       // 20% from left
+  y: 0.1,       // 10% from top
+  width: 0.6,   // 60% of video width
+  height: 0.8,  // 80% of video height
+};
+
 // Multi-angle poses for registration
 const CAPTURE_POSES = [
   { id: "center", label: "Look straight", targetYaw: 0, yawTolerance: 20 },
@@ -40,6 +49,7 @@ const FaceCapture = ({
   onCancel,
   requiresLiveness = false, // Ignored now - we use multi-angle instead
   mode = "registration", // "registration" = multi-angle, "attendance" = single
+  verificationResult = null, // For attendance mode: { verified, verifying, full_name, person_id } from parent
 }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -67,10 +77,12 @@ const FaceCapture = ({
   // Detection results
   const [detectedFace, setDetectedFace] = useState(null);
   const [faceData, setFaceData] = useState(null);
+  const [faceInsideTarget, setFaceInsideTarget] = useState(false);
 
   // Quality check states
   const [qualityChecks, setQualityChecks] = useState({
     faceDetected: { passed: false, message: "Loading..." },
+    facePosition: { passed: false, message: "Waiting..." },
     faceSize: { passed: false, value: 0, message: "Waiting..." },
     pose: { passed: false, message: "Checking..." },
     brightness: { passed: false, value: 0, message: "Checking..." },
@@ -172,7 +184,7 @@ const FaceCapture = ({
     setCameraState("ready");
   };
 
-  // Calculate brightness
+  // Calculate brightness from face crop
   const calculateBrightness = useCallback((imageData) => {
     const data = imageData.data;
     let total = 0;
@@ -216,6 +228,33 @@ const FaceCapture = ({
     return Math.abs(yaw - targetYaw) <= tolerance;
   }, []);
 
+  // Check if face bounding box is inside target rectangle
+  const checkFaceInsideTarget = useCallback((boundingBox, videoWidth, videoHeight) => {
+    // Target rectangle in pixels
+    const targetX = TARGET_RECT.x * videoWidth;
+    const targetY = TARGET_RECT.y * videoHeight;
+    const targetWidth = TARGET_RECT.width * videoWidth;
+    const targetHeight = TARGET_RECT.height * videoHeight;
+    const targetRight = targetX + targetWidth;
+    const targetBottom = targetY + targetHeight;
+
+    // Face bounding box
+    const faceLeft = boundingBox.x;
+    const faceTop = boundingBox.y;
+    const faceRight = faceLeft + boundingBox.width;
+    const faceBottom = faceTop + boundingBox.height;
+
+    // Check if face is completely inside target rectangle
+    const isInside = (
+      faceLeft >= targetX &&
+      faceTop >= targetY &&
+      faceRight <= targetRight &&
+      faceBottom <= targetBottom
+    );
+
+    return isInside;
+  }, []);
+
   // Main detection and quality check loop
   useEffect(() => {
     // Allow camera to show even if models aren't loaded yet
@@ -255,6 +294,7 @@ const FaceCapture = ({
           setQualityStable(false);
           stabilityStartRef.current = null;
           setPoseMatched(false);
+          setFaceInsideTarget(false);
 
           setQualityChecks((prev) => ({
             ...prev,
@@ -264,11 +304,14 @@ const FaceCapture = ({
                 ? "Multiple faces detected"
                 : "No face detected",
             },
+            facePosition: { passed: false, message: "Position face in yellow box" },
           }));
           return;
         }
 
         const { landmarks, boundingBox, pose } = faceResult;
+        const videoWidth = video.videoWidth || 640;
+        const videoHeight = video.videoHeight || 480;
 
         // Smooth pose with EMA
         let smoothedPose = pose;
@@ -287,11 +330,13 @@ const FaceCapture = ({
         setFaceData(newFaceData);
         faceDataRef.current = newFaceData;
 
+        // Check if face is inside target rectangle
+        const isInsideTarget = checkFaceInsideTarget(boundingBox, videoWidth, videoHeight);
+        setFaceInsideTarget(isInsideTarget);
+
         // Analyze image quality - use face crop for brightness/sharpness checks
         const canvas = analysisCanvasRef.current;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        const videoWidth = video.videoWidth || 640;
-        const videoHeight = video.videoHeight || 480;
         
         // Get face crop region with padding for quality analysis
         const padding = Math.max(boundingBox.width, boundingBox.height) * 0.15;
@@ -334,14 +379,15 @@ const FaceCapture = ({
 
         setPoseMatched(posePassed);
 
-        // Draw landmarks on overlay canvas
+        // Draw landmarks and target rectangle on overlay canvas
         if (landmarksCanvasRef.current && videoRef.current) {
-          drawLandmarks(
+          drawOverlay(
             landmarksCanvasRef.current,
             landmarks,
             videoRef.current,
             smoothedPose,
-            currentPose
+            currentPose,
+            isInsideTarget
           );
         }
 
@@ -350,6 +396,12 @@ const FaceCapture = ({
           faceDetected: {
             passed: true,
             message: "Face detected ✓",
+          },
+          facePosition: {
+            passed: isInsideTarget,
+            message: isInsideTarget 
+              ? "Face in position ✓" 
+              : "Move face into yellow box",
           },
           faceSize: {
             passed:
@@ -397,7 +449,7 @@ const FaceCapture = ({
 
         const passed = Object.values(newChecks).filter((c) => c.passed).length;
         setPassedCount(passed);
-        const allPassed = passed === 5;
+        const allPassed = passed === 6; // Now 6 checks including face position
         setAllChecksPassed(allPassed);
 
         // Check stability for auto-capture
@@ -440,6 +492,7 @@ const FaceCapture = ({
     calculateBrightness,
     calculateSharpness,
     checkPoseMatch,
+    checkFaceInsideTarget,
     currentPose,
     autoCaptureEnabled,
   ]);
@@ -597,15 +650,18 @@ const FaceCapture = ({
         }
       } else {
         // Single capture mode (attendance)
-        setCapturedImage(bestFrame);
-        stopCamera();
-
+        // For attendance mode: don't show captured image, let parent handle display
+        // Keep camera running - parent will remount component if needed
         const response = await fetch(bestFrame);
         const blob = await response.blob();
         const file = new File([blob], "face.jpg", { type: "image/jpeg" });
         if (onCapture) {
           onCapture(file);
         }
+        // Reset for next capture attempt (parent will remount on success)
+        setAutoCaptureEnabled(true);
+        stabilityStartRef.current = null;
+        setQualityStable(false);
       }
     } catch (err) {
       console.error("Auto-capture error:", err);
@@ -656,15 +712,17 @@ const FaceCapture = ({
           }
         }
       } else {
-        setCapturedImage(bestFrame);
-        stopCamera();
-
+        // Single capture mode (attendance)
+        // For attendance mode: don't show captured image, let parent handle display
         const response = await fetch(bestFrame);
         const blob = await response.blob();
         const file = new File([blob], "face.jpg", { type: "image/jpeg" });
         if (onCapture) {
           onCapture(file);
         }
+        // Reset for next capture attempt
+        stabilityStartRef.current = null;
+        setQualityStable(false);
       }
     } catch (err) {
       console.error("Capture error:", err);
@@ -682,6 +740,7 @@ const FaceCapture = ({
     setError(null);
     setQualityStable(false);
     setPoseMatched(false);
+    setFaceInsideTarget(false);
     stabilityStartRef.current = null;
     poseEmaRef.current = null;
     setAutoCaptureEnabled(true);
@@ -697,12 +756,12 @@ const FaceCapture = ({
   };
 
   // Calculate ring progress
-  const ringProgress = (passedCount / 5) * 100;
+  const ringProgress = (passedCount / 6) * 100; // Now 6 checks
 
   const getRingColor = () => {
-    if (passedCount === 5) return "#22c55e";
-    if (passedCount >= 4) return "#eab308";
-    if (passedCount >= 3) return "#f97316";
+    if (passedCount === 6) return "#22c55e";
+    if (passedCount >= 5) return "#eab308";
+    if (passedCount >= 4) return "#f97316";
     return "#3b82f6";
   };
 
@@ -747,12 +806,23 @@ const FaceCapture = ({
                 onLoadedMetadata={handleVideoReady}
               />
 
+              {/* Target Rectangle Guide (Yellow) */}
+              <div 
+                className={`${styles.targetRect} ${faceInsideTarget ? styles.targetRectActive : ''}`}
+                style={{
+                  left: `${(1 - TARGET_RECT.x - TARGET_RECT.width) * 100}%`,
+                  top: `${TARGET_RECT.y * 100}%`,
+                  width: `${TARGET_RECT.width * 100}%`,
+                  height: `${TARGET_RECT.height * 100}%`,
+                }}
+              />
+
               {/* Face Box */}
               {detectedFace && videoRef.current && (
                 <div
                   className={`${styles.faceBox} ${
                     allChecksPassed && qualityStable ? styles.faceBoxReady : ""
-                  }`}
+                  } ${faceInsideTarget ? styles.faceBoxInside : ""}`}
                   style={{
                     left: `${
                       (1 -
@@ -816,7 +886,7 @@ const FaceCapture = ({
                 </svg>
                 <div className={styles.progressText}>
                   <span className={styles.progressNumber}>{passedCount}</span>
-                  <span className={styles.progressLabel}>/5</span>
+                  <span className={styles.progressLabel}>/6</span>
                 </div>
               </div>
 
@@ -835,10 +905,46 @@ const FaceCapture = ({
                 </div>
               )}
 
+              {/* Hold indicator during verification (attendance mode) */}
+              {verificationResult?.verifying && (
+                <div className={`${styles.autoCaptureIndicator} ${styles.holdIndicator}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: "18px", height: "18px" }}>
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                  </svg>
+                  <span>Hold still...</span>
+                </div>
+              )}
+
               {/* Auto-capture indicator */}
-              {qualityStable && allChecksPassed && (
+              {qualityStable && allChecksPassed && !verificationResult?.verified && !verificationResult?.verifying && (
                 <div className={styles.autoCaptureIndicator}>
                   <span>✓ Capturing automatically...</span>
+                </div>
+              )}
+
+              {/* Verification Success Overlay (attendance mode) */}
+              {verificationResult?.verified && (
+                <div className={`${styles.verificationSuccessOverlay} ${
+                  verificationResult.action === "check-out" ? styles.verificationCheckOut : ""
+                }`}>
+                  <div className={styles.verificationIcon}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  </div>
+                  <div className={styles.verificationInfo}>
+                    <span className={styles.verificationName}>{verificationResult.full_name}</span>
+                    <span className={styles.verificationId}>ID: {verificationResult.person_id}</span>
+                    {verificationResult.action && (
+                      <span className={styles.verificationAction}>
+                        {verificationResult.action === "check-in" ? "✓ Checked In" : 
+                         verificationResult.action === "check-out" ? "✓ Checked Out" : 
+                         "Already Done Today"}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -885,13 +991,18 @@ const FaceCapture = ({
       {!capturedImage && cameraState === "ready" && modelsLoaded && (
         <div className={styles.qualityPanel}>
           <h3 className={styles.qualityTitle}>
-            Quality Checks ({passedCount}/5)
+            Quality Checks ({passedCount}/6)
           </h3>
           <div className={styles.qualityList}>
             <QualityItem
               check={qualityChecks.faceDetected}
               label="Face"
               icon="👤"
+            />
+            <QualityItem
+              check={qualityChecks.facePosition}
+              label="Position"
+              icon="🎯"
             />
             <QualityItem
               check={qualityChecks.faceSize}
@@ -907,7 +1018,7 @@ const FaceCapture = ({
             <QualityItem
               check={qualityChecks.sharpness}
               label="Focus"
-              icon="🎯"
+              icon="🔍"
             />
           </div>
         </div>
@@ -943,6 +1054,13 @@ const FaceCapture = ({
               Done
             </button>
           </>
+        ) : mode === "attendance" ? (
+          /* Attendance mode: minimal buttons, auto-capture handles everything */
+          !verificationResult?.verified && (
+            <button className={styles.cancelButton} onClick={handleCancel}>
+              Exit
+            </button>
+          )
         ) : (
           <>
             <button className={styles.cancelButton} onClick={handleCancel}>
@@ -980,8 +1098,8 @@ const QualityItem = ({ check, label, icon }) => (
   </div>
 );
 
-// Draw landmarks on canvas overlay
-const drawLandmarks = (canvas, landmarks, video, pose, currentPose) => {
+// Draw overlay with target rectangle and landmarks
+const drawOverlay = (canvas, landmarks, video, pose, currentPose, isInsideTarget) => {
   if (!canvas || !landmarks || !video) return;
 
   const ctx = canvas.getContext("2d");
@@ -1088,6 +1206,7 @@ const drawLandmarks = (canvas, landmarks, video, pose, currentPose) => {
 // Get instruction based on quality checks
 const getInstruction = (checks, currentPose) => {
   if (!checks.faceDetected.passed) return checks.faceDetected.message;
+  if (!checks.facePosition.passed) return "Position your face inside the yellow box";
   if (!checks.faceSize.passed) return checks.faceSize.message;
   if (!checks.pose.passed) return currentPose.label;
   if (!checks.brightness.passed) return checks.brightness.message;

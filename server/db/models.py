@@ -209,6 +209,373 @@ class Attendance(SQLModel, table=True):
         pass
 
 
+# =============================================================================
+# Document Model
+# =============================================================================
+
+class Document(SQLModel, table=True):
+    """Documents associated with persons (ID cards, contracts, etc.)"""
+    __tablename__ = "document"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    uploaded_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    
+    # Document info
+    type: str = Field(max_length=50, index=True)  # e.g., "id_card", "contract", "certificate"
+    storage_url: str = Field(max_length=500)
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    file_size: Optional[int] = Field(default=None)  # Size in bytes
+    
+    # Timestamps
+    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships - specify foreign_keys to disambiguate
+    person: Person = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "Document.person_id"}
+    )
+    uploaded_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "Document.uploaded_by_person_id"}
+    )
+
+
+# =============================================================================
+# Skill Models
+# =============================================================================
+
+class Skill(SQLModel, table=True):
+    """Skills that workers can have"""
+    __tablename__ = "skill"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(max_length=100, unique=True, index=True)
+    description: Optional[str] = Field(default=None, max_length=500)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person_skills: List["PersonSkill"] = Relationship(back_populates="skill")
+    location_prices: List["SkillLocationPrice"] = Relationship(back_populates="skill")
+
+
+class PersonSkill(SQLModel, table=True):
+    """Many-to-many relationship between Person and Skill"""
+    __tablename__ = "person_skill"
+    
+    person_id: str = Field(foreign_key="person.id", primary_key=True)
+    skill_id: UUID = Field(foreign_key="skill.id", primary_key=True)
+    
+    # Optional: certification date, expiry, etc.
+    certified_at: Optional[date] = Field(default=None)
+    expires_at: Optional[date] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person: Person = Relationship()
+    skill: Skill = Relationship(back_populates="person_skills")
+
+
+class SkillLocationPrice(SQLModel, table=True):
+    """Pricing for skills at specific locations"""
+    __tablename__ = "skill_location_price"
+    
+    skill_id: UUID = Field(foreign_key="skill.id", primary_key=True)
+    location_id: UUID = Field(foreign_key="location.id", primary_key=True)
+    
+    price: float = Field(ge=0)  # Price per hour or per day
+    currency: str = Field(default="USD", max_length=3)
+    effective_from: Optional[date] = Field(default=None)
+    effective_to: Optional[date] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    skill: Skill = Relationship(back_populates="location_prices")
+    location: Location = Relationship()
+
+
+# =============================================================================
+# Assignment Model
+# =============================================================================
+
+class Assignment(SQLModel, table=True):
+    """Assignments of persons to locations and shifts"""
+    __tablename__ = "assignment"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    location_id: UUID = Field(foreign_key="location.id", index=True)
+    shift_id: UUID = Field(foreign_key="shift.id", index=True)
+    
+    # Assignment details
+    title: Optional[str] = Field(default=None, max_length=100)
+    rate: Optional[float] = Field(default=None, ge=0)  # Hourly/daily rate
+    
+    # Effective dates
+    effective_from: Optional[date] = Field(default=None, index=True)
+    effective_to: Optional[date] = Field(default=None)
+    
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person: Person = Relationship()
+    location: Location = Relationship()
+    shift: Shift = Relationship()
+
+
+# =============================================================================
+# Overtime Request Model
+# =============================================================================
+
+class OvertimeRequestStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class OvertimeRequest(SQLModel, table=True):
+    """Overtime requests for attendance reconciliation"""
+    __tablename__ = "overtime_request"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    attendance_id: Optional[UUID] = Field(default=None, foreign_key="attendance.id")
+    created_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    approved_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    
+    # Overtime data
+    overtime_date: date = Field(index=True)  # Renamed from 'date' to avoid conflict with type
+    hours: float = Field(ge=0)
+    status: OvertimeRequestStatus = Field(default=OvertimeRequestStatus.PENDING)
+    
+    # Notes
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+    rejection_reason: Optional[str] = Field(default=None, max_length=500)
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    approved_at: Optional[datetime] = Field(default=None)
+    
+    # Relationships - specify foreign_keys to disambiguate
+    person: Person = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "OvertimeRequest.person_id"}
+    )
+    created_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "OvertimeRequest.created_by_person_id"}
+    )
+    approved_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "OvertimeRequest.approved_by_person_id"}
+    )
+    attendance: Optional[Attendance] = Relationship()
+
+
+# =============================================================================
+# Salary Component Models
+# =============================================================================
+
+class ComponentKind(str, Enum):
+    EARNING = "earning"
+    DEDUCTION = "deduction"
+
+
+class ComponentType(str, Enum):
+    BASE_SALARY = "base_salary"
+    OVERTIME = "overtime"
+    ALLOWANCE = "allowance"
+    INCENTIVE = "incentive"
+    TAX = "tax"
+    OTHER = "other"
+
+
+class AmountType(str, Enum):
+    FIXED = "fixed"
+    PER_DAY = "per_day"
+    PER_HOUR = "per_hour"
+    PERCENTAGE = "percentage"
+
+
+class SalaryComponent(SQLModel, table=True):
+    """Salary components (earnings and deductions)"""
+    __tablename__ = "salary_component"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    name: str = Field(max_length=100, index=True)
+    kind: ComponentKind
+    type: ComponentType
+    amount_type: AmountType
+    amount: float = Field(ge=0)  # Base amount (can be overridden per employee)
+    active: bool = Field(default=True)
+    
+    description: Optional[str] = Field(default=None, max_length=500)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    employee_components: List["EmployeeComponent"] = Relationship(back_populates="component")
+    payroll_lines: List["PayrollRunLine"] = Relationship(back_populates="component")
+
+
+class EmployeeComponent(SQLModel, table=True):
+    """Employee-specific overrides for salary components"""
+    __tablename__ = "employee_component"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    component_id: UUID = Field(foreign_key="salary_component.id", index=True)
+    
+    # Override value (if None, use component's default amount)
+    value_override: Optional[float] = Field(default=None, ge=0)
+    
+    # Effective dates
+    effective_from: Optional[date] = Field(default=None)
+    effective_to: Optional[date] = Field(default=None)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person: Person = Relationship()
+    component: SalaryComponent = Relationship(back_populates="employee_components")
+
+
+# =============================================================================
+# Payroll Models
+# =============================================================================
+
+class PayrollPeriodStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+    LOCKED = "locked"
+
+
+class PayrollRunStatus(str, Enum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    LOCKED = "locked"
+
+
+class PayrollPeriod(SQLModel, table=True):
+    """Payroll periods (typically monthly)"""
+    __tablename__ = "payroll_period"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    start_date: date = Field(index=True)
+    end_date: date = Field(index=True)
+    status: PayrollPeriodStatus = Field(default=PayrollPeriodStatus.OPEN)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    payroll_runs: List["PayrollRun"] = Relationship(back_populates="period")
+
+
+class PayrollRun(SQLModel, table=True):
+    """Payroll run for a specific period and location"""
+    __tablename__ = "payroll_run"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    payroll_period_id: UUID = Field(foreign_key="payroll_period.id", index=True)
+    location_id: Optional[UUID] = Field(default=None, foreign_key="location.id", index=True)
+    created_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    approved_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    
+    status: PayrollRunStatus = Field(default=PayrollRunStatus.DRAFT)
+    
+    # Notes
+    notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    approved_at: Optional[datetime] = Field(default=None)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    period: PayrollPeriod = Relationship(back_populates="payroll_runs")
+    location: Optional[Location] = Relationship()
+    created_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "PayrollRun.created_by_person_id"}
+    )
+    approved_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "PayrollRun.approved_by_person_id"}
+    )
+    employees: List["PayrollRunEmployee"] = Relationship(back_populates="payroll_run")
+
+
+class PayrollRunEmployee(SQLModel, table=True):
+    """Employee payroll summary for a payroll run"""
+    __tablename__ = "payroll_run_employee"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    payroll_run_id: UUID = Field(foreign_key="payroll_run.id", index=True)
+    person_id: str = Field(foreign_key="person.id", index=True)
+    
+    # Snapshot values (at time of payroll calculation)
+    base_salary_amount: Optional[float] = Field(default=None, ge=0)
+    
+    # Calculated totals
+    gross: float = Field(default=0, ge=0)
+    deductions: float = Field(default=0, ge=0)
+    net: float = Field(default=0)
+    
+    # Attendance summary
+    total_hours: float = Field(default=0, ge=0)
+    total_days: int = Field(default=0, ge=0)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    payroll_run: PayrollRun = Relationship(back_populates="employees")
+    person: Person = Relationship()
+    lines: List["PayrollRunLine"] = Relationship(back_populates="payroll_run_employee")
+
+
+class PayrollRunLine(SQLModel, table=True):
+    """Individual line items in employee payroll"""
+    __tablename__ = "payroll_run_line"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    payroll_run_employee_id: UUID = Field(foreign_key="payroll_run_employee.id", index=True)
+    component_id: Optional[UUID] = Field(default=None, foreign_key="salary_component.id")
+    
+    # Line details
+    component_name_snapshot: Optional[str] = Field(default=None, max_length=100)  # Snapshot of component name
+    kind: ComponentKind
+    amount: float
+    
+    # Optional metadata (JSON stored as text)
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    payroll_run_employee: PayrollRunEmployee = Relationship(back_populates="lines")
+    component: Optional[SalaryComponent] = Relationship(back_populates="payroll_lines")
+
+
 # Create indexes
 Index("idx_attendance_person_date", Attendance.person_id, Attendance.attendance_date)
 Index("idx_person_status", Person.status)
+Index("idx_assignment_person", Assignment.person_id)
+Index("idx_assignment_location", Assignment.location_id)
+Index("idx_payroll_run_period", PayrollRun.payroll_period_id)
+Index("idx_payroll_run_employee_person", PayrollRunEmployee.person_id)

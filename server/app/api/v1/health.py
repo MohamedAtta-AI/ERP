@@ -16,3 +16,4 @@ async def health_check():
         "version": "0.1.0",
     }
 
+

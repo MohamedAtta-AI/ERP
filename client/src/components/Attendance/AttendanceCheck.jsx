@@ -1,132 +1,177 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import FaceCapture from "../FaceCapture/FaceCapture";
-import { verifyAttendance, checkIn } from "../../services/api";
+import { verifyAttendance, checkIn, checkOut, getAttendanceHistory } from "../../services/api";
 import styles from "./AttendanceCheck.module.css";
 
 /**
  * Rapid Attendance Check Component
  * 
  * Features:
- * - Stays on same screen after recognition
- * - Shows result overlay briefly, then auto-resets
- * - Ready for next person immediately without touching anything
- * - Only shows result when high confidence + anti-spoofing passed
+ * - Continuous scanning - never stops camera
+ * - Shows "Verified" indicator briefly on success
+ * - On failure/spoofing, logs to console and continues scanning
+ * - Supports both check-in and check-out based on existing attendance
+ * - Ready for next person immediately
  */
 const AttendanceCheck = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [result, setResult] = useState(null); // { success: boolean, data: object, message: string }
+  const [verificationStatus, setVerificationStatus] = useState(null); // "verified" | "verifying" | null
+  const [lastVerifiedPerson, setLastVerifiedPerson] = useState(null);
+  const [lastAction, setLastAction] = useState(null); // "check-in" | "check-out"
   const [recentCheckins, setRecentCheckins] = useState([]); // Last few check-ins for display
   const [captureKey, setCaptureKey] = useState(0); // Key to force FaceCapture remount
-  const resultTimeoutRef = useRef(null);
+  const statusTimeoutRef = useRef(null);
 
-  // Auto-clear result after display and reset capture
+  // Auto-clear verification status and reset for next capture
   useEffect(() => {
-    if (result) {
-      resultTimeoutRef.current = setTimeout(() => {
-        setResult(null);
+    if (verificationStatus === "verified") {
+      statusTimeoutRef.current = setTimeout(() => {
+        setVerificationStatus(null);
+        setLastVerifiedPerson(null);
+        setLastAction(null);
         // Force FaceCapture to remount for next person
         setCaptureKey((k) => k + 1);
-      }, 3500); // Show result for 3.5 seconds then auto-clear
+      }, 2500); // Show "Verified" for 2.5 seconds
     }
     return () => {
-      if (resultTimeoutRef.current) {
-        clearTimeout(resultTimeoutRef.current);
+      if (statusTimeoutRef.current) {
+        clearTimeout(statusTimeoutRef.current);
       }
     };
-  }, [result]);
+  }, [verificationStatus]);
+
+  // Check if person has already checked in today
+  const checkTodayAttendance = useCallback(async (personId) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const history = await getAttendanceHistory({
+        person_id: personId,
+        start_date: today,
+        end_date: today,
+        limit: 1,
+      });
+      if (history && history.length > 0) {
+        return history[0]; // Return today's attendance record
+      }
+    } catch (err) {
+      console.error("Error checking attendance:", err);
+    }
+    return null;
+  }, []);
 
   const handleCapture = useCallback(async (imageFile) => {
     if (isProcessing) return;
     
     setIsProcessing(true);
-    setResult(null);
+    setVerificationStatus("verifying");
 
     try {
       // Verify face with backend (includes anti-spoofing check)
       const verifyResult = await verifyAttendance(imageFile);
 
-      if (verifyResult && verifyResult.match_found) {
-        // Only show success if anti-spoofing passed (is_real = true)
-        if (verifyResult.is_real === false) {
-          setResult({
-            success: false,
-            message: "Spoofing detected. Please use your real face.",
-            data: null,
-          });
-          setIsProcessing(false);
-          return;
-        }
+      // Check for spoofing
+      if (verifyResult && verifyResult.is_real === false) {
+        console.warn("🚨 SPOOFING DETECTED - Anti-spoofing check failed", {
+          timestamp: new Date().toISOString(),
+          is_real: verifyResult.is_real,
+          message: verifyResult.message || "Spoofing attempt",
+        });
+        // Continue scanning - don't show error to user
+        setVerificationStatus(null);
+        setCaptureKey((k) => k + 1);
+        setIsProcessing(false);
+        return;
+      }
 
-        // High confidence check - don't show result for low confidence matches
+      if (verifyResult && verifyResult.match_found) {
+        // High confidence check - don't proceed for low confidence matches
         const confidence = verifyResult.similarity_score || 0;
         if (confidence < 0.65) {
-          setResult({
-            success: false,
-            message: "Low confidence match. Please try again.",
-            data: null,
+          console.log("⚠️ Low confidence match - rejecting", {
+            confidence,
+            timestamp: new Date().toISOString(),
           });
+          // Continue scanning
+          setVerificationStatus(null);
+          setCaptureKey((k) => k + 1);
           setIsProcessing(false);
           return;
         }
 
-        // Record check-in
-        try {
-          await checkIn(verifyResult.person_id || verifyResult.employee_id);
-        } catch (checkInErr) {
-          console.warn("Check-in recording failed:", checkInErr);
-          // Continue - verification was successful
+        const personId = verifyResult.person_id || verifyResult.employee_id;
+        
+        // Check if person has already checked in today
+        const todayAttendance = await checkTodayAttendance(personId);
+        let action = "check-in";
+        
+        if (todayAttendance && todayAttendance.check_in && !todayAttendance.check_out) {
+          // Already checked in but not out - perform check-out
+          action = "check-out";
+          try {
+            await checkOut(personId);
+            console.log("✅ Check-out recorded for", personId);
+          } catch (checkOutErr) {
+            console.warn("Check-out recording failed:", checkOutErr);
+            // Continue - verification was successful
+          }
+        } else if (!todayAttendance || !todayAttendance.check_in) {
+          // Not checked in yet - perform check-in
+          try {
+            await checkIn(personId);
+            console.log("✅ Check-in recorded for", personId);
+          } catch (checkInErr) {
+            console.warn("Check-in recording failed:", checkInErr);
+            // Continue - verification was successful
+          }
+        } else {
+          // Already checked in AND out today
+          action = "already-done";
+          console.log("ℹ️ Already checked in and out today", personId);
         }
 
         // Add to recent check-ins
         const checkinRecord = {
           id: Date.now(),
           name: verifyResult.full_name,
-          personId: verifyResult.person_id || verifyResult.employee_id,
+          personId: personId,
           time: new Date().toLocaleTimeString(),
           confidence: confidence,
+          action: action === "check-in" ? "In" : action === "check-out" ? "Out" : "Done",
         };
 
         setRecentCheckins((prev) => [checkinRecord, ...prev].slice(0, 5));
 
-        setResult({
-          success: true,
-          message: `Welcome, ${verifyResult.full_name}!`,
-          data: verifyResult,
-        });
+        // Show verified status
+        setLastVerifiedPerson(verifyResult);
+        setLastAction(action);
+        setVerificationStatus("verified");
       } else {
-        setResult({
-          success: false,
-          message: "Face not recognized. Please register first.",
-          data: null,
+        // No match found - log and continue scanning
+        console.log("👤 Face not recognized - continuing scan", {
+          timestamp: new Date().toISOString(),
+          match_found: verifyResult?.match_found,
         });
+        setVerificationStatus(null);
+        setCaptureKey((k) => k + 1);
       }
     } catch (err) {
-      console.error("Verification error:", err);
+      console.error("❌ Verification error:", err);
       const errorMsg = err.message || "";
       
       if (errorMsg.includes("spoof") || errorMsg.includes("real")) {
-        setResult({
-          success: false,
-          message: "Spoofing detected. Use your real face.",
-          data: null,
-        });
-      } else if (errorMsg.includes("not recognized") || errorMsg.includes("404")) {
-        setResult({
-          success: false,
-          message: "Face not recognized. Please register first.",
-          data: null,
-        });
-      } else {
-        setResult({
-          success: false,
-          message: "Verification failed. Please try again.",
-          data: null,
+        console.warn("🚨 SPOOFING DETECTED (error response)", {
+          timestamp: new Date().toISOString(),
+          error: errorMsg,
         });
       }
+      
+      // Continue scanning on any error
+      setVerificationStatus(null);
+      setCaptureKey((k) => k + 1);
     } finally {
       setIsProcessing(false);
     }
-  }, [isProcessing]);
+  }, [isProcessing, checkTodayAttendance]);
 
   const handleCancel = useCallback(() => {
     if (onBack) {
@@ -155,48 +200,25 @@ const AttendanceCheck = ({ onBack }) => {
             onCancel={handleCancel}
             requiresLiveness={false}
             mode="attendance"
+            verificationResult={
+              verificationStatus === "verifying"
+                ? { verifying: true }
+                : verificationStatus === "verified" && lastVerifiedPerson
+                ? {
+                    verified: true,
+                    full_name: lastVerifiedPerson.full_name,
+                    person_id: lastVerifiedPerson.person_id || lastVerifiedPerson.employee_id,
+                    action: lastAction,
+                  }
+                : null
+            }
           />
 
-          {/* Processing Overlay */}
-          {isProcessing && (
-            <div className={styles.processingOverlay}>
-              <div className={styles.spinner} />
+          {/* Verifying Status Indicator */}
+          {verificationStatus === "verifying" && (
+            <div className={styles.statusIndicator}>
+              <div className={styles.statusSpinner} />
               <span>Verifying...</span>
-            </div>
-          )}
-
-          {/* Result Overlay - shows briefly then auto-clears */}
-          {result && (
-            <div 
-              className={`${styles.resultOverlay} ${
-                result.success ? styles.resultSuccess : styles.resultError
-              }`}
-            >
-              <div className={styles.resultIcon}>
-                {result.success ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                    <polyline points="22 4 12 14.01 9 11.01" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="15" y1="9" x2="9" y2="15" />
-                    <line x1="9" y1="9" x2="15" y2="15" />
-                  </svg>
-                )}
-              </div>
-              <div className={styles.resultMessage}>{result.message}</div>
-              {result.success && result.data && (
-                <div className={styles.resultDetails}>
-                  <span className={styles.personId}>
-                    ID: {result.data.person_id || result.data.employee_id}
-                  </span>
-                  <span className={styles.checkTime}>
-                    {new Date().toLocaleTimeString()}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -214,7 +236,17 @@ const AttendanceCheck = ({ onBack }) => {
                     <span className={styles.checkinName}>{checkin.name}</span>
                     <span className={styles.checkinId}>{checkin.personId}</span>
                   </div>
-                  <span className={styles.checkinTime}>{checkin.time}</span>
+                  <div className={styles.checkinMeta}>
+                    {checkin.action && (
+                      <span className={`${styles.checkinAction} ${
+                        checkin.action === "In" ? styles.actionIn : 
+                        checkin.action === "Out" ? styles.actionOut : styles.actionDone
+                      }`}>
+                        {checkin.action}
+                      </span>
+                    )}
+                    <span className={styles.checkinTime}>{checkin.time}</span>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -224,7 +256,7 @@ const AttendanceCheck = ({ onBack }) => {
 
       {/* Instructions */}
       <div className={styles.instructions}>
-        <p>Position your face in the frame. Check-in is automatic when your face is recognized.</p>
+        <p>Position your face in the yellow box. Check-in is automatic when recognized.</p>
       </div>
     </div>
   );

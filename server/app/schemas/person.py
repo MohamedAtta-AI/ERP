@@ -31,6 +31,7 @@ class PersonRead(BaseModel):
     department: Optional[str] = None
     position: Optional[str] = None
     status: str
+    role: Optional[str] = None  # Role name
     has_face_enrolled: bool = False
     created_at: datetime
     
@@ -62,4 +63,5 @@ class FaceEnrollResponse(BaseModel):
     person_id: str
     message: str = "Face enrolled successfully"
     embedding_size: int = 128
+
 

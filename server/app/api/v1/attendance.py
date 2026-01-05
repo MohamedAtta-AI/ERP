@@ -11,6 +11,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
@@ -26,6 +27,7 @@ from server.app.schemas.attendance import (
 )
 from server.db.models import Person, Attendance, AttendanceStatus, Location
 from server.services.face_recognition import FaceRecognitionService
+from server.app.services.attendance_automation import reconcile_attendance
 from server.config import config
 
 router = APIRouter()
@@ -314,4 +316,49 @@ async def get_attendance_history(
         )
         for a in attendances
     ]
+
+
+class ReconcileRequest(BaseModel):
+    target_date: Optional[date] = None
+
+
+class ReconcileResponse(BaseModel):
+    target_date: date
+    absent_marked: int
+    overtime_pending_marked: int
+    overtime_requests_created: int
+    message: str
+
+
+@router.post("/reconcile", response_model=ReconcileResponse)
+async def reconcile_attendance_endpoint(
+    request: ReconcileRequest = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Reconcile attendance for a specific date (or today).
+    
+    This endpoint:
+    1. Marks absent for employees who didn't check in
+    2. Creates overtime requests for employees who checked in but not out
+    
+    Should be called at the end of each work day or before payroll processing.
+    """
+    target = request.target_date if request and request.target_date else date.today()
+    
+    try:
+        stats = await reconcile_attendance(target, session)
+        await session.commit()
+        
+        return ReconcileResponse(
+            target_date=target,
+            absent_marked=stats["absent_marked"],
+            overtime_pending_marked=stats["overtime_pending_marked"],
+            overtime_requests_created=stats["overtime_requests_created"],
+            message=f"Reconciliation complete for {target}",
+        )
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Reconciliation failed: {str(e)}")
+
 

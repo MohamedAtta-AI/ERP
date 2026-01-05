@@ -37,10 +37,12 @@ class ApiClient {
     const formData = new FormData();
     formData.append("file", file);
 
-    // Append additional data as JSON string if provided
-    if (Object.keys(additionalData).length > 0) {
-      formData.append("data", JSON.stringify(additionalData));
-    }
+    // Append additional data as form fields
+    Object.entries(additionalData).forEach(([key, value]) => {
+      if (value !== null && value !== undefined) {
+        formData.append(key, value);
+      }
+    });
 
     try {
       const response = await fetch(url, {
@@ -62,6 +64,10 @@ class ApiClient {
 }
 
 const apiClient = new ApiClient(API_BASE_URL);
+
+// ============================================================
+// Employee/Person API
+// ============================================================
 
 /**
  * Register a new employee
@@ -88,41 +94,331 @@ export const getEmployee = async (employeeId) => {
 };
 
 /**
+ * List all employees
+ */
+export const listEmployees = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.status) queryParams.append("status", params.status);
+  if (params.role) queryParams.append("role", params.role);
+  if (params.limit) queryParams.append("limit", params.limit);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.LIST_EMPLOYEES}?${queryString}` : API_ENDPOINTS.LIST_EMPLOYEES;
+  return apiClient.request(endpoint);
+};
+
+// ============================================================
+// Location API
+// ============================================================
+
+/**
+ * List all locations
+ */
+export const listLocations = async (activeOnly = true) => {
+  const endpoint = `${API_ENDPOINTS.LOCATIONS}?active_only=${activeOnly}`;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Create a new location
+ */
+export const createLocation = async (locationData) => {
+  return apiClient.request(API_ENDPOINTS.LOCATIONS, {
+    method: "POST",
+    body: JSON.stringify(locationData),
+  });
+};
+
+/**
+ * Update a location
+ */
+export const updateLocation = async (locationId, locationData) => {
+  return apiClient.request(API_ENDPOINTS.LOCATION(locationId), {
+    method: "PUT",
+    body: JSON.stringify(locationData),
+  });
+};
+
+/**
+ * Delete a location
+ */
+export const deleteLocation = async (locationId) => {
+  return apiClient.request(API_ENDPOINTS.LOCATION(locationId), {
+    method: "DELETE",
+  });
+};
+
+// ============================================================
+// Shift API
+// ============================================================
+
+/**
+ * List all shifts
+ */
+export const listShifts = async (activeOnly = true) => {
+  const endpoint = `${API_ENDPOINTS.SHIFTS}?active_only=${activeOnly}`;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Create a new shift
+ */
+export const createShift = async (shiftData) => {
+  return apiClient.request(API_ENDPOINTS.SHIFTS, {
+    method: "POST",
+    body: JSON.stringify(shiftData),
+  });
+};
+
+/**
+ * Update a shift
+ */
+export const updateShift = async (shiftId, shiftData) => {
+  return apiClient.request(API_ENDPOINTS.SHIFT(shiftId), {
+    method: "PUT",
+    body: JSON.stringify(shiftData),
+  });
+};
+
+/**
+ * Delete a shift
+ */
+export const deleteShift = async (shiftId) => {
+  return apiClient.request(API_ENDPOINTS.SHIFT(shiftId), {
+    method: "DELETE",
+  });
+};
+
+// ============================================================
+// Assignment API
+// ============================================================
+
+/**
+ * List all assignments
+ */
+export const listAssignments = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.location_id) queryParams.append("location_id", params.location_id);
+  if (params.active_only !== undefined) queryParams.append("active_only", params.active_only);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.ASSIGNMENTS}?${queryString}` : API_ENDPOINTS.ASSIGNMENTS;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Create a new assignment
+ */
+export const createAssignment = async (assignmentData) => {
+  return apiClient.request(API_ENDPOINTS.ASSIGNMENTS, {
+    method: "POST",
+    body: JSON.stringify(assignmentData),
+  });
+};
+
+/**
+ * Update an assignment
+ */
+export const updateAssignment = async (assignmentId, assignmentData) => {
+  return apiClient.request(API_ENDPOINTS.ASSIGNMENT(assignmentId), {
+    method: "PUT",
+    body: JSON.stringify(assignmentData),
+  });
+};
+
+/**
+ * Delete an assignment
+ */
+export const deleteAssignment = async (assignmentId) => {
+  return apiClient.request(API_ENDPOINTS.ASSIGNMENT(assignmentId), {
+    method: "DELETE",
+  });
+};
+
+// ============================================================
+// Attendance API
+// ============================================================
+
+/**
  * Verify attendance (face recognition)
  */
-export const verifyAttendance = async (imageFile) => {
-  return apiClient.uploadFile(API_ENDPOINTS.VERIFY_ATTENDANCE, imageFile);
+export const verifyAttendance = async (imageFile, locationId = null, shiftId = null) => {
+  return apiClient.uploadFile(API_ENDPOINTS.VERIFY_ATTENDANCE, imageFile, {
+    location_id: locationId,
+    shift_id: shiftId,
+  });
 };
 
 /**
  * Record check-in
  */
-export const checkIn = async (employeeId, location = null) => {
+export const checkIn = async (personId, locationId = null, shiftId = null) => {
   return apiClient.request(API_ENDPOINTS.CHECK_IN, {
     method: "POST",
-    body: JSON.stringify({ employee_id: employeeId, location }),
+    body: JSON.stringify({ 
+      person_id: personId, 
+      location_id: locationId,
+      shift_id: shiftId,
+    }),
   });
 };
 
 /**
  * Record check-out
  */
-export const checkOut = async (employeeId) => {
+export const checkOut = async (personId) => {
   return apiClient.request(API_ENDPOINTS.CHECK_OUT, {
     method: "POST",
-    body: JSON.stringify({ employee_id: employeeId }),
+    body: JSON.stringify({ person_id: personId }),
   });
 };
 
 /**
  * Get attendance history
  */
-export const getAttendanceHistory = async (employeeId = null) => {
-  const endpoint = employeeId
-    ? `${API_ENDPOINTS.ATTENDANCE_HISTORY}?employee_id=${employeeId}`
-    : API_ENDPOINTS.ATTENDANCE_HISTORY;
+export const getAttendanceHistory = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.start_date) queryParams.append("start_date", params.start_date);
+  if (params.end_date) queryParams.append("end_date", params.end_date);
+  if (params.limit) queryParams.append("limit", params.limit);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.ATTENDANCE_HISTORY}?${queryString}` : API_ENDPOINTS.ATTENDANCE_HISTORY;
   return apiClient.request(endpoint);
 };
+
+/**
+ * Reconcile attendance for a date (mark absent, create overtime requests)
+ */
+export const reconcileAttendance = async (targetDate = null) => {
+  const body = targetDate ? { target_date: targetDate } : {};
+  return apiClient.request(API_ENDPOINTS.RECONCILE_ATTENDANCE, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+};
+
+// ============================================================
+// Payroll API
+// ============================================================
+
+/**
+ * List payroll periods
+ */
+export const listPayrollPeriods = async () => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_PERIODS);
+};
+
+/**
+ * Create a payroll period
+ */
+export const createPayrollPeriod = async (periodData) => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_PERIODS, {
+    method: "POST",
+    body: JSON.stringify(periodData),
+  });
+};
+
+/**
+ * List salary components
+ */
+export const listSalaryComponents = async () => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_COMPONENTS);
+};
+
+/**
+ * Create a salary component
+ */
+export const createSalaryComponent = async (componentData) => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_COMPONENTS, {
+    method: "POST",
+    body: JSON.stringify(componentData),
+  });
+};
+
+/**
+ * Get employee salary components
+ */
+export const getEmployeeComponents = async (employeeId) => {
+  return apiClient.request(API_ENDPOINTS.EMPLOYEE_COMPONENTS(employeeId));
+};
+
+/**
+ * Set employee salary component override
+ */
+export const setEmployeeComponent = async (employeeId, componentId, valueOverride) => {
+  return apiClient.request(API_ENDPOINTS.EMPLOYEE_COMPONENTS(employeeId), {
+    method: "POST",
+    body: JSON.stringify({ component_id: componentId, value_override: valueOverride }),
+  });
+};
+
+/**
+ * Create/run payroll for a period
+ */
+export const createPayrollRun = async (periodId, locationId = null) => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_RUNS, {
+    method: "POST",
+    body: JSON.stringify({ period_id: periodId, location_id: locationId }),
+  });
+};
+
+/**
+ * Get payroll run details
+ */
+export const getPayrollRun = async (runId) => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_RUN(runId));
+};
+
+/**
+ * List payroll runs
+ */
+export const listPayrollRuns = async (periodId = null) => {
+  const endpoint = periodId 
+    ? `${API_ENDPOINTS.PAYROLL_RUNS}?period_id=${periodId}` 
+    : API_ENDPOINTS.PAYROLL_RUNS;
+  return apiClient.request(endpoint);
+};
+
+// ============================================================
+// Overtime API
+// ============================================================
+
+/**
+ * List overtime requests
+ */
+export const listOvertimeRequests = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.status) queryParams.append("status", params.status);
+  if (params.start_date) queryParams.append("start_date", params.start_date);
+  if (params.end_date) queryParams.append("end_date", params.end_date);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.OVERTIME_REQUESTS}?${queryString}` : API_ENDPOINTS.OVERTIME_REQUESTS;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Approve overtime request
+ */
+export const approveOvertime = async (overtimeId) => {
+  return apiClient.request(API_ENDPOINTS.APPROVE_OVERTIME(overtimeId), {
+    method: "POST",
+  });
+};
+
+/**
+ * Reject overtime request
+ */
+export const rejectOvertime = async (overtimeId, reason = "") => {
+  return apiClient.request(API_ENDPOINTS.REJECT_OVERTIME(overtimeId), {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+};
+
+// ============================================================
+// Health API
+// ============================================================
 
 /**
  * Health check

@@ -4,40 +4,40 @@ overview: A production-grade implementation plan for the OnTime ERP Attendance +
 todos:
   - id: phase0-docker
     content: Create docker-compose.yml with postgres, backend, frontend services and data/ volumes
-    status: pending
+    status: completed
   - id: phase0-config
     content: Update face_recognition.py to use config.py values (model name, embedding size, threshold)
-    status: pending
+    status: completed
   - id: phase0-tests
     content: Setup pytest infrastructure with conftest.py, fixtures, and test database
-    status: pending
+    status: completed
   - id: phase1-models
     content: Implement all SQLModel models (Person, Role, Location, Shift, Skill, Attendance, Payroll tables)
-    status: pending
+    status: completed
   - id: phase1-migrations
     content: Create database migration setup and initial migration
     status: pending
   - id: phase2-api-structure
     content: Create server/app/ structure with main.py, database.py, dependencies.py
-    status: pending
+    status: completed
   - id: phase2-person-api
     content: Implement Person CRUD API with 6-char ID generation
-    status: pending
+    status: completed
   - id: phase2-master-data-api
     content: Implement Location, Shift, Skill, Assignment CRUD APIs
-    status: pending
+    status: completed
   - id: phase2-attendance-api
     content: Implement Attendance check-in/out and verification APIs
-    status: pending
+    status: completed
   - id: phase2-rbac
     content: Implement RBAC middleware with role and field-level guards
-    status: pending
+    status: completed
   - id: phase3-automation
     content: Implement attendance reconciliation service (overtime_pending/absent rules)
-    status: pending
+    status: completed
   - id: phase4-payroll-api
     content: Implement Payroll period, run, calculation, and approval APIs
-    status: pending
+    status: completed
   - id: phase5-admin-ui
     content: Create Admin UI pages (locations, shifts, skills, persons, salary components, payroll dashboard)
     status: pending
@@ -334,5 +334,3 @@ SECRET_KEY=your-secret-key-here
 1. **Phase 0**: Docker + Config fixes + Test infrastructure
 2. **Phase 1**: Schema design + Models
 3. **Phase 2**: API implementation with RBAC
-4. **Phase 3**: Attendance automation
-5. **Phase 4**: Payroll calculation

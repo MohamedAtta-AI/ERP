@@ -94,3 +94,4 @@ def validate_person_id(person_id: str) -> bool:
         return False
     return all(c in CHARSET for c in person_id)
 
+
