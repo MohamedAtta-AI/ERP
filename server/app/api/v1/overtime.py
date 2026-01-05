@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from server.app.database import get_session
+from server.app.dependencies import require_auth, require_role, get_user_role
 from server.app.schemas.overtime import (
     OvertimeRequestCreate, OvertimeRequestRead, OvertimeRequestUpdate
 )
@@ -22,9 +23,33 @@ router = APIRouter()
 @router.post("", response_model=OvertimeRequestRead, status_code=status.HTTP_201_CREATED)
 async def create_overtime_request(
     data: OvertimeRequestCreate,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a new overtime request."""
+    """
+    Create a new overtime request.
+    
+    Supervisor: Can create for workers under them.
+    Admin: Can create for any person.
+    """
+    role_name = await get_user_role(current_user, session)
+    
+    # Supervisor can only create for workers under them
+    if role_name == "supervisor":
+        person_stmt = select(Person).where(Person.id == data.person_id)
+        person_result = await session.execute(person_stmt)
+        person = person_result.scalar_one_or_none()
+        
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        
+        if person.supervisor_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Supervisors can only create overtime requests for workers under them"
+            )
+        
+        data.created_by_person_id = current_user.id
     # Verify person exists
     person_stmt = select(Person).where(Person.id == data.person_id)
     person_result = await session.execute(person_stmt)
@@ -32,8 +57,12 @@ async def create_overtime_request(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     
+    overtime_data = data.model_dump()
+    if not overtime_data.get("created_by_person_id"):
+        overtime_data["created_by_person_id"] = current_user.id
+    
     overtime = OvertimeRequest(
-        **data.model_dump(),
+        **overtime_data,
         status=OvertimeRequestStatus.PENDING,
     )
     session.add(overtime)
@@ -61,9 +90,24 @@ async def create_overtime_request(
 async def list_overtime_requests(
     person_id: str | None = None,
     status: str | None = None,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """List overtime requests with optional filters."""
+    """
+    List overtime requests with optional filters.
+    
+    Supervisor: Can see requests for workers under them.
+    Admin: Can see all requests.
+    """
+    role_name = await get_user_role(current_user, session)
+    
+    stmt = select(OvertimeRequest, Person).join(
+        Person, OvertimeRequest.person_id == Person.id
+    )
+    
+    # Supervisor can only see workers under them
+    if role_name == "supervisor":
+        stmt = stmt.where(Person.supervisor_id == current_user.id)
     stmt = select(OvertimeRequest, Person).join(
         Person, OvertimeRequest.person_id == Person.id
     )
@@ -137,9 +181,36 @@ async def get_overtime_request(
 async def approve_overtime_request(
     overtime_id: UUID,
     data: OvertimeRequestUpdate,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Approve or reject an overtime request."""
+    """
+    Approve or reject an overtime request.
+    
+    Supervisor: Can approve for workers under them.
+    Admin: Can approve any request.
+    """
+    role_name = await get_user_role(current_user, session)
+    
+    stmt = select(OvertimeRequest, Person).join(
+        Person, OvertimeRequest.person_id == Person.id
+    ).where(OvertimeRequest.id == overtime_id)
+    
+    result = await session.execute(stmt)
+    row = result.first()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+    
+    overtime, person = row
+    
+    # Supervisor can only approve for workers under them
+    if role_name == "supervisor":
+        if person.supervisor_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Supervisors can only approve overtime requests for workers under them"
+            )
     stmt = select(OvertimeRequest).where(OvertimeRequest.id == overtime_id)
     result = await session.execute(stmt)
     overtime = result.scalar_one_or_none()
@@ -156,6 +227,7 @@ async def approve_overtime_request(
     # Update status
     if data.status == "approved":
         overtime.status = OvertimeRequestStatus.APPROVED
+        overtime.approved_by_person_id = current_user.id
         overtime.approved_at = datetime.utcnow()
     elif data.status == "rejected":
         overtime.status = OvertimeRequestStatus.REJECTED

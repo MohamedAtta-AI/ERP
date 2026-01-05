@@ -11,18 +11,35 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from server.app.database import get_session
+from server.app.dependencies import require_role, require_auth, get_user_role
+from server.app.middleware.rbac import filter_admin_only_fields
 from server.app.schemas.assignment import AssignmentCreate, AssignmentRead, AssignmentUpdate
 from server.db.models import Assignment, Person, Location, Shift
 
 router = APIRouter()
 
+ASSIGNMENT_ADMIN_ONLY_FIELDS = ["rate", "title"]
+
 
 @router.post("", response_model=AssignmentRead, status_code=status.HTTP_201_CREATED)
 async def create_assignment(
     data: AssignmentCreate,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a new assignment."""
+    """
+    Create a new assignment.
+    
+    Admin: Can create with all fields including rate/title.
+    Supervisor: Cannot create assignments (read-only access).
+    """
+    role_name = await get_user_role(current_user, session)
+    
+    if role_name != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can create assignments"
+        )
     # Verify person, location, shift exist
     person_stmt = select(Person).where(Person.id == data.person_id)
     person_result = await session.execute(person_stmt)
@@ -69,9 +86,10 @@ async def list_assignments(
     person_id: str | None = None,
     location_id: UUID | None = None,
     active_only: bool = True,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """List assignments with optional filters."""
+    """List assignments with optional filters (Admin and Supervisor read-only)."""
     stmt = select(Assignment, Person, Location, Shift).join(
         Person, Assignment.person_id == Person.id
     ).join(
@@ -113,9 +131,10 @@ async def list_assignments(
 @router.get("/{assignment_id}", response_model=AssignmentRead)
 async def get_assignment(
     assignment_id: UUID,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get an assignment by ID."""
+    """Get an assignment by ID (Admin and Supervisor read-only)."""
     stmt = select(Assignment, Person, Location, Shift).join(
         Person, Assignment.person_id == Person.id
     ).join(
@@ -153,9 +172,23 @@ async def get_assignment(
 async def update_assignment(
     assignment_id: UUID,
     data: AssignmentUpdate,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update an assignment."""
+    """
+    Update an assignment.
+    
+    Admin: Can update all fields including rate/title.
+    Supervisor: Cannot update assignments (read-only access).
+    """
+    role_name = await get_user_role(current_user, session)
+    
+    if role_name != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can update assignments"
+        )
+    
     stmt = select(Assignment).where(Assignment.id == assignment_id)
     result = await session.execute(stmt)
     assignment = result.scalar_one_or_none()
@@ -163,7 +196,6 @@ async def update_assignment(
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
     
-    # TODO: Apply field-level guard for rate/title (admin only)
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(assignment, field, value)
@@ -206,9 +238,10 @@ async def update_assignment(
 @router.delete("/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_assignment(
     assignment_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete an assignment (soft delete)."""
+    """Delete an assignment (soft delete) (Admin only)."""
     stmt = select(Assignment).where(Assignment.id == assignment_id)
     result = await session.execute(stmt)
     assignment = result.scalar_one_or_none()

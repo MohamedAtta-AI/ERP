@@ -23,6 +23,54 @@ class PersonStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     SUSPENDED = "suspended"
+    TERMINATED = "terminated"
+    ON_LEAVE = "on_leave"
+
+
+class EmploymentStatus(str, Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    TERMINATED = "terminated"
+    ON_LEAVE = "on_leave"
+
+
+class WorkerType(str, Enum):
+    PERMANENT = "permanent"
+    TEMP = "temp"
+    DAILY = "daily"
+    CONTRACTOR = "contractor"
+
+
+class ContractType(str, Enum):
+    FIXED_TERM = "fixed_term"
+    INDEFINITE = "indefinite"
+    DAILY_WAGE = "daily_wage"
+    PROJECT_BASED = "project_based"
+
+
+class PayCycle(str, Enum):
+    MONTHLY = "monthly"
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    DAILY = "daily"
+
+
+class InsuranceStatus(str, Enum):
+    ENROLLED = "enrolled"
+    EXEMPT = "exempt"
+    PENDING = "pending"
+
+
+class PaymentMethod(str, Enum):
+    BANK_TRANSFER = "bank_transfer"
+    CASH = "cash"
+    WALLET = "wallet"
+
+
+class PaymentStatus(str, Enum):
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+    HOLD = "hold"
 
 
 class AttendanceStatus(str, Enum):
@@ -59,13 +107,15 @@ class Role(SQLModel, table=True):
 # =============================================================================
 
 class Location(SQLModel, table=True):
-    """Work locations/sites"""
+    """Work locations/sites (Location = Client/Site, no separate Client model)"""
     __tablename__ = "location"
     
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(max_length=255, index=True)
     city: Optional[str] = Field(default=None, max_length=100)
     address: Optional[str] = Field(default=None, max_length=500)
+    contract_document_url: Optional[str] = Field(default=None, max_length=500)
+    contract_name: Optional[str] = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -124,6 +174,40 @@ class Person(SQLModel, table=True):
     status: PersonStatus = Field(default=PersonStatus.ACTIVE)
     department: Optional[str] = Field(default=None, max_length=100)
     position: Optional[str] = Field(default=None, max_length=100)
+    
+    # Extended employment fields
+    hire_date: Optional[date] = Field(default=None)
+    employment_status: Optional[EmploymentStatus] = Field(default=None)
+    worker_type: Optional[WorkerType] = Field(default=None)
+    grade: Optional[str] = Field(default=None, max_length=50)
+    contract_type: Optional[ContractType] = Field(default=None)
+    contract_start_date: Optional[date] = Field(default=None)
+    contract_end_date: Optional[date] = Field(default=None)
+    pay_cycle: Optional[PayCycle] = Field(default=None)
+    payroll_group_id: Optional[UUID] = Field(default=None, foreign_key="payroll_group.id")
+    probation_status: bool = Field(default=False)
+    overtime_eligible: bool = Field(default=True)
+    
+    # Insurance and tax fields
+    insurance_enrollment_status: Optional[InsuranceStatus] = Field(default=None)
+    insurance_number: Optional[str] = Field(default=None, max_length=50)
+    tax_id: Optional[str] = Field(default=None, max_length=50)
+    tax_residency_status: Optional[str] = Field(default=None, max_length=50)
+    
+    # Payment fields
+    payment_method: Optional[PaymentMethod] = Field(default=None)
+    bank_name: Optional[str] = Field(default=None, max_length=100)
+    iban: Optional[str] = Field(default=None, max_length=34)
+    account_number: Optional[str] = Field(default=None, max_length=50)
+    account_holder_name: Optional[str] = Field(default=None, max_length=255)
+    branch_code: Optional[str] = Field(default=None, max_length=20)
+    wallet_provider: Optional[str] = Field(default=None, max_length=50)
+    wallet_number: Optional[str] = Field(default=None, max_length=50)
+    payroll_currency: str = Field(default="EGP", max_length=3)
+    payment_status: Optional[PaymentStatus] = Field(default=None)
+    
+    # Authentication
+    password_hash: Optional[str] = Field(default=None, max_length=255)
     
     # Foreign keys
     role_id: Optional[UUID] = Field(default=None, foreign_key="role.id")
@@ -392,6 +476,10 @@ class ComponentType(str, Enum):
     ALLOWANCE = "allowance"
     INCENTIVE = "incentive"
     TAX = "tax"
+    INSURANCE = "insurance"
+    LOAN_INSTALLMENT = "loan_installment"
+    ADVANCE_REPAYMENT = "advance_repayment"
+    PENALTY = "penalty"
     OTHER = "other"
 
 
@@ -414,6 +502,14 @@ class SalaryComponent(SQLModel, table=True):
     amount_type: AmountType
     amount: float = Field(ge=0)  # Base amount (can be overridden per employee)
     active: bool = Field(default=True)
+    
+    # Metadata fields
+    taxable: bool = Field(default=True)  # Whether component is included in tax calculations
+    insurable: bool = Field(default=True)  # Whether component is included in insurance calculations
+    max_amount: Optional[float] = Field(default=None)  # Maximum cap for this component
+    max_percentage: Optional[float] = Field(default=None)  # Maximum percentage of base salary
+    priority: int = Field(default=0)  # Deduction order (lower number = deducted first)
+    cost_allocation_rule: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON for client billing allocation
     
     description: Optional[str] = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -570,6 +666,162 @@ class PayrollRunLine(SQLModel, table=True):
     # Relationships
     payroll_run_employee: PayrollRunEmployee = Relationship(back_populates="lines")
     component: Optional[SalaryComponent] = Relationship(back_populates="payroll_lines")
+
+
+# =============================================================================
+# Salary Advance Model
+# =============================================================================
+
+class AdvanceStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REPAID = "repaid"
+    CANCELLED = "cancelled"
+
+
+class SalaryAdvance(SQLModel, table=True):
+    """Salary advances tracking"""
+    __tablename__ = "salary_advance"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    component_id: UUID = Field(foreign_key="salary_component.id")
+    repayment_component_id: Optional[UUID] = Field(default=None, foreign_key="employee_component.id")
+    approved_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    
+    # Advance data
+    amount: float = Field(ge=0)  # Total advance amount
+    taken_date: date = Field(index=True)  # When advance was taken
+    remaining_balance: float = Field(ge=0)  # Updated after each payroll
+    status: AdvanceStatus = Field(default=AdvanceStatus.PENDING)
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person: Person = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "SalaryAdvance.person_id"}
+    )
+    component: SalaryComponent = Relationship()
+    approved_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "SalaryAdvance.approved_by_person_id"}
+    )
+
+
+# =============================================================================
+# Loan Model
+# =============================================================================
+
+class LoanStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class Loan(SQLModel, table=True):
+    """Loans tracking"""
+    __tablename__ = "loan"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    person_id: str = Field(foreign_key="person.id", index=True)
+    component_id: UUID = Field(foreign_key="salary_component.id")
+    approved_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id")
+    
+    # Loan data
+    total_amount: float = Field(ge=0)
+    remaining_balance: float = Field(ge=0)
+    monthly_installment: float = Field(ge=0)
+    start_date: date = Field(index=True)
+    end_date: date
+    status: LoanStatus = Field(default=LoanStatus.ACTIVE)
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    person: Person = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "Loan.person_id"}
+    )
+    component: SalaryComponent = Relationship()
+    approved_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "Loan.approved_by_person_id"}
+    )
+
+
+# =============================================================================
+# Payroll Group Model
+# =============================================================================
+
+class PayrollGroup(SQLModel, table=True):
+    """Payroll groups for grouping employees"""
+    __tablename__ = "payroll_group"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    name: str = Field(max_length=100, index=True)
+    description: Optional[str] = Field(default=None, max_length=500)
+    location_id: Optional[UUID] = Field(default=None, foreign_key="location.id")
+    is_active: bool = Field(default=True)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    location: Optional[Location] = Relationship()
+
+
+# =============================================================================
+# Payslip Model
+# =============================================================================
+
+class Payslip(SQLModel, table=True):
+    """Generated payslips"""
+    __tablename__ = "payslip"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    # Foreign keys
+    payroll_run_employee_id: UUID = Field(foreign_key="payroll_run_employee.id", index=True)
+    person_id: str = Field(foreign_key="person.id", index=True)
+    
+    # Payslip data
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    pdf_url_ar: Optional[str] = Field(default=None, max_length=500)
+    pdf_url_en: Optional[str] = Field(default=None, max_length=500)
+    language: str = Field(default="ar", max_length=2)  # "ar" or "en"
+    
+    # Relationships
+    payroll_run_employee: PayrollRunEmployee = Relationship()
+    person: Person = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "Payslip.person_id"}
+    )
+
+
+# =============================================================================
+# Audit Log Model
+# =============================================================================
+
+class AuditLog(SQLModel, table=True):
+    """Audit trail for all changes"""
+    __tablename__ = "audit_log"
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    
+    table_name: str = Field(max_length=100, index=True)
+    record_id: str = Field(max_length=100, index=True)
+    action: str = Field(max_length=20)  # CREATE, UPDATE, DELETE
+    changed_by_person_id: Optional[str] = Field(default=None, foreign_key="person.id", index=True)
+    old_values: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON
+    new_values: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+    
+    # Relationships
+    changed_by: Optional[Person] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "AuditLog.changed_by_person_id"}
+    )
 
 
 # Create indexes

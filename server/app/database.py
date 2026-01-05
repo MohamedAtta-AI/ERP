@@ -4,6 +4,7 @@ Database connection and session management.
 Uses SQLAlchemy async engine with PostgreSQL + pgvector.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -20,6 +21,7 @@ from server.db.models import (  # noqa: F401
     Assignment, Document, OvertimeRequest,
     SalaryComponent, EmployeeComponent,
     PayrollPeriod, PayrollRun, PayrollRunEmployee, PayrollRunLine,
+    SalaryAdvance, Loan, PayrollGroup, Payslip, AuditLog,
 )
 
 
@@ -41,14 +43,44 @@ async_session_maker = async_sessionmaker(
 
 
 async def init_db():
-    """Initialize database tables."""
+    """Initialize database tables using Alembic migrations."""
     from sqlalchemy import text
+    from alembic.config import Config
+    from alembic import command
+    from alembic.script import ScriptDirectory
     
     async with engine.begin() as conn:
         # Create pgvector extension if not exists
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        # Create all tables (models are already imported at module level)
-        await conn.run_sync(SQLModel.metadata.create_all)
+    
+    # Run Alembic migrations
+    import os
+    from pathlib import Path
+    # alembic.ini is in the project root (parent of server/)
+    project_root = Path(__file__).parent.parent.parent
+    alembic_ini_path = project_root / "alembic.ini"
+    alembic_cfg = Config(str(alembic_ini_path))
+    
+    # Check if migrations are up to date
+    # Run Alembic migrations synchronously (Alembic commands are sync)
+    # We need to run this in a thread to avoid blocking the async event loop
+    import concurrent.futures
+    try:
+        def run_migrations():
+            script = ScriptDirectory.from_config(alembic_cfg)
+        head = script.get_current_head()
+        command.upgrade(alembic_cfg, "head")
+        
+        # Run migrations in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(executor, run_migrations)
+    except Exception as e:
+        # If no migrations exist yet, that's okay - they'll be created
+        print(f"Note: Alembic migrations not yet set up: {e}")
+        # Fallback to create_all for initial setup
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

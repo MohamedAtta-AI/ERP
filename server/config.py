@@ -42,6 +42,11 @@ class Config(BaseSettings):
     EMBEDDING_SIZE: int = 128
 
     ANTISPOOF_MODEL_PATH: str = "models/sface.onnx"
+    
+    # JWT Configuration
+    JWT_SECRET_KEY: str = "change-me-in-production"
+    JWT_ACCESS_EXPIRE_MINUTES: int = 15
+    JWT_REFRESH_EXPIRE_DAYS: int = 7
 
 
 config = Config()

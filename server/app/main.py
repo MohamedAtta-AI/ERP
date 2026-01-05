@@ -7,10 +7,18 @@ This module creates and configures the FastAPI application.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from server.config import config
 from server.app.api.v1 import router as api_v1_router
 from server.app.database import init_db
+from server.app.middleware.error_handler import (
+    global_exception_handler,
+    validation_exception_handler,
+    database_exception_handler,
+)
+from server.app.middleware.logging import StructuredLoggingMiddleware, setup_logging
 
 
 @asynccontextmanager
@@ -18,6 +26,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup/shutdown events."""
     # Startup
     print("🚀 Starting OnTime ERP API server...")
+    
+    # Setup logging
+    setup_logging()
     
     # Initialize database
     try:
@@ -39,6 +50,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Setup logging middleware (must be first)
+app.add_middleware(StructuredLoggingMiddleware)
+
 # Configure CORS
 print(f"🌐 CORS Configuration:")
 print(f"   Allowed Origins: {config.CORS_ORIGINS}")
@@ -51,6 +65,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add exception handlers
+app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(SQLAlchemyError, database_exception_handler)
 
 # Include API router
 app.include_router(api_v1_router)

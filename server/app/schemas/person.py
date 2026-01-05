@@ -17,6 +17,35 @@ class PersonCreate(BaseModel):
     email: Optional[EmailStr] = None
     department: Optional[str] = Field(None, max_length=100)
     position: Optional[str] = Field(None, max_length=100)
+    # Extended fields (admin only for monetary fields)
+    hire_date: Optional[date] = None
+    employment_status: Optional[str] = None
+    worker_type: Optional[str] = None
+    grade: Optional[str] = Field(None, max_length=50)
+    contract_type: Optional[str] = None
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
+    pay_cycle: Optional[str] = None
+    payroll_group_id: Optional[str] = None
+    probation_status: Optional[bool] = None
+    overtime_eligible: Optional[bool] = None
+    insurance_enrollment_status: Optional[str] = None
+    insurance_number: Optional[str] = Field(None, max_length=50)
+    tax_id: Optional[str] = Field(None, max_length=50)
+    tax_residency_status: Optional[str] = Field(None, max_length=50)
+    payment_method: Optional[str] = None
+    bank_name: Optional[str] = Field(None, max_length=100)
+    iban: Optional[str] = Field(None, max_length=34)
+    account_number: Optional[str] = Field(None, max_length=50)
+    account_holder_name: Optional[str] = Field(None, max_length=255)
+    branch_code: Optional[str] = Field(None, max_length=20)
+    wallet_provider: Optional[str] = Field(None, max_length=50)
+    wallet_number: Optional[str] = Field(None, max_length=50)
+    payroll_currency: Optional[str] = Field(None, max_length=3)
+    payment_status: Optional[str] = None
+    role_id: Optional[str] = None
+    supervisor_id: Optional[str] = None
+    password: Optional[str] = None  # For setting initial password
 
 
 class PersonRead(BaseModel):
@@ -51,6 +80,35 @@ class PersonUpdate(BaseModel):
     department: Optional[str] = Field(None, max_length=100)
     position: Optional[str] = Field(None, max_length=100)
     status: Optional[str] = None
+    # Extended fields (admin only for monetary fields)
+    hire_date: Optional[date] = None
+    employment_status: Optional[str] = None
+    worker_type: Optional[str] = None
+    grade: Optional[str] = Field(None, max_length=50)
+    contract_type: Optional[str] = None
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
+    pay_cycle: Optional[str] = None
+    payroll_group_id: Optional[str] = None
+    probation_status: Optional[bool] = None
+    overtime_eligible: Optional[bool] = None
+    insurance_enrollment_status: Optional[str] = None
+    insurance_number: Optional[str] = Field(None, max_length=50)
+    tax_id: Optional[str] = Field(None, max_length=50)
+    tax_residency_status: Optional[str] = Field(None, max_length=50)
+    payment_method: Optional[str] = None
+    bank_name: Optional[str] = Field(None, max_length=100)
+    iban: Optional[str] = Field(None, max_length=34)
+    account_number: Optional[str] = Field(None, max_length=50)
+    account_holder_name: Optional[str] = Field(None, max_length=255)
+    branch_code: Optional[str] = Field(None, max_length=20)
+    wallet_provider: Optional[str] = Field(None, max_length=50)
+    wallet_number: Optional[str] = Field(None, max_length=50)
+    payroll_currency: Optional[str] = Field(None, max_length=3)
+    payment_status: Optional[str] = None
+    role_id: Optional[str] = None
+    supervisor_id: Optional[str] = None
+    password: Optional[str] = None  # For password updates
 
 
 class FaceEnrollRequest(BaseModel):

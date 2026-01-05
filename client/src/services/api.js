@@ -1,25 +1,92 @@
 import { API_BASE_URL, API_ENDPOINTS } from "../config/api";
 
 /**
- * API Client utility functions
+ * API Client utility functions with JWT token refresh
  */
 class ApiClient {
   constructor(baseURL) {
     this.baseURL = baseURL;
   }
 
+  getAccessToken() {
+    return localStorage.getItem("access_token");
+  }
+
+  getRefreshToken() {
+    return localStorage.getItem("refresh_token");
+  }
+
+  setTokens(accessToken, refreshToken) {
+    localStorage.setItem("access_token", accessToken);
+    if (refreshToken) {
+      localStorage.setItem("refresh_token", refreshToken);
+    }
+  }
+
+  clearTokens() {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+  }
+
+  async refreshAccessToken() {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) {
+      throw new Error("No refresh token available");
+    }
+
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!response.ok) {
+        this.clearTokens();
+        throw new Error("Token refresh failed");
+      }
+
+      const data = await response.json();
+      this.setTokens(data.access_token, null);
+      return data.access_token;
+    } catch (error) {
+      this.clearTokens();
+      throw error;
+    }
+  }
+
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const accessToken = this.getAccessToken();
+    
     const config = {
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
         ...options.headers,
       },
     };
 
     try {
-      const response = await fetch(url, config);
+      let response = await fetch(url, config);
+      
+      // Handle 401 - try to refresh token
+      if (response.status === 401 && accessToken) {
+        try {
+          const newToken = await this.refreshAccessToken();
+          // Retry with new token
+          config.headers.Authorization = `Bearer ${newToken}`;
+          response = await fetch(url, config);
+        } catch (refreshError) {
+          // Refresh failed, redirect to login
+          window.location.href = "/login";
+          throw new Error("Session expired. Please login again.");
+        }
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -34,6 +101,7 @@ class ApiClient {
 
   async uploadFile(endpoint, file, additionalData = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const accessToken = this.getAccessToken();
     const formData = new FormData();
     formData.append("file", file);
 
@@ -45,10 +113,34 @@ class ApiClient {
     });
 
     try {
-      const response = await fetch(url, {
+      const headers = {};
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      let response = await fetch(url, {
         method: "POST",
+        headers: headers,
         body: formData,
       });
+
+      // Handle 401 - try to refresh token
+      if (response.status === 401 && accessToken) {
+        try {
+          const newToken = await this.refreshAccessToken();
+          // Retry with new token
+          headers.Authorization = `Bearer ${newToken}`;
+          response = await fetch(url, {
+            method: "POST",
+            headers: headers,
+            body: formData,
+          });
+        } catch (refreshError) {
+          // Refresh failed, redirect to login
+          window.location.href = "/login";
+          throw new Error("Session expired. Please login again.");
+        }
+      }
 
       const data = await response.json();
 
@@ -91,6 +183,16 @@ export const enrollFace = async (employeeId, imageFile) => {
  */
 export const getEmployee = async (employeeId) => {
   return apiClient.request(API_ENDPOINTS.GET_EMPLOYEE(employeeId));
+};
+
+/**
+ * Update employee details
+ */
+export const updateEmployee = async (employeeId, employeeData) => {
+  return apiClient.request(API_ENDPOINTS.UPDATE_EMPLOYEE(employeeId), {
+    method: "PUT",
+    body: JSON.stringify(employeeData),
+  });
 };
 
 /**
@@ -398,6 +500,16 @@ export const listOvertimeRequests = async (params = {}) => {
 };
 
 /**
+ * Create an overtime request
+ */
+export const createOvertimeRequest = async (overtimeData) => {
+  return apiClient.request(API_ENDPOINTS.OVERTIME_REQUESTS, {
+    method: "POST",
+    body: JSON.stringify(overtimeData),
+  });
+};
+
+/**
  * Approve overtime request
  */
 export const approveOvertime = async (overtimeId) => {
@@ -413,6 +525,353 @@ export const rejectOvertime = async (overtimeId, reason = "") => {
   return apiClient.request(API_ENDPOINTS.REJECT_OVERTIME(overtimeId), {
     method: "POST",
     body: JSON.stringify({ reason }),
+  });
+};
+
+// ============================================================
+// Auth API
+// ============================================================
+
+/**
+ * Login
+ */
+export const login = async (personId) => {
+  return apiClient.request(API_ENDPOINTS.LOGIN, {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId }),
+  });
+};
+
+/**
+ * Refresh token
+ */
+export const refreshToken = async (refreshToken) => {
+  return apiClient.request(API_ENDPOINTS.REFRESH, {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+};
+
+/**
+ * Logout
+ */
+export const logout = async () => {
+  return apiClient.request(API_ENDPOINTS.LOGOUT, {
+    method: "POST",
+  });
+};
+
+/**
+ * Get current user
+ */
+export const getCurrentUser = async () => {
+  return apiClient.request(API_ENDPOINTS.ME);
+};
+
+// ============================================================
+// Skills API
+// ============================================================
+
+/**
+ * List all skills
+ */
+export const listSkills = async () => {
+  return apiClient.request(API_ENDPOINTS.SKILLS);
+};
+
+/**
+ * Create a skill
+ */
+export const createSkill = async (skillData) => {
+  return apiClient.request(API_ENDPOINTS.SKILLS, {
+    method: "POST",
+    body: JSON.stringify(skillData),
+  });
+};
+
+/**
+ * Update a skill
+ */
+export const updateSkill = async (skillId, skillData) => {
+  return apiClient.request(API_ENDPOINTS.SKILL(skillId), {
+    method: "PUT",
+    body: JSON.stringify(skillData),
+  });
+};
+
+/**
+ * Delete a skill
+ */
+export const deleteSkill = async (skillId) => {
+  return apiClient.request(API_ENDPOINTS.SKILL(skillId), {
+    method: "DELETE",
+  });
+};
+
+// ============================================================
+// Salary Advances API
+// ============================================================
+
+/**
+ * List salary advances
+ */
+export const listSalaryAdvances = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.status) queryParams.append("status", params.status);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.SALARY_ADVANCES}?${queryString}` : API_ENDPOINTS.SALARY_ADVANCES;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Create a salary advance
+ */
+export const createSalaryAdvance = async (advanceData) => {
+  return apiClient.request(API_ENDPOINTS.SALARY_ADVANCES, {
+    method: "POST",
+    body: JSON.stringify(advanceData),
+  });
+};
+
+/**
+ * Get salary advance
+ */
+export const getSalaryAdvance = async (advanceId) => {
+  return apiClient.request(API_ENDPOINTS.SALARY_ADVANCE(advanceId));
+};
+
+/**
+ * Approve salary advance
+ */
+export const approveSalaryAdvance = async (advanceId) => {
+  return apiClient.request(API_ENDPOINTS.APPROVE_ADVANCE(advanceId), {
+    method: "POST",
+  });
+};
+
+// ============================================================
+// Loans API
+// ============================================================
+
+/**
+ * List loans
+ */
+export const listLoans = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.status) queryParams.append("status", params.status);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.LOANS}?${queryString}` : API_ENDPOINTS.LOANS;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Create a loan
+ */
+export const createLoan = async (loanData) => {
+  return apiClient.request(API_ENDPOINTS.LOANS, {
+    method: "POST",
+    body: JSON.stringify(loanData),
+  });
+};
+
+/**
+ * Get loan
+ */
+export const getLoan = async (loanId) => {
+  return apiClient.request(API_ENDPOINTS.LOAN(loanId));
+};
+
+/**
+ * Approve loan
+ */
+export const approveLoan = async (loanId) => {
+  return apiClient.request(API_ENDPOINTS.APPROVE_LOAN(loanId), {
+    method: "POST",
+  });
+};
+
+/**
+ * Get loan repayment schedule
+ */
+export const getLoanRepaymentSchedule = async (loanId) => {
+  return apiClient.request(API_ENDPOINTS.LOAN_REPAYMENT_SCHEDULE(loanId));
+};
+
+// ============================================================
+// Payslips API
+// ============================================================
+
+/**
+ * List payslips
+ */
+export const listPayslips = async (params = {}) => {
+  const queryParams = new URLSearchParams();
+  if (params.person_id) queryParams.append("person_id", params.person_id);
+  if (params.period_id) queryParams.append("period_id", params.period_id);
+  const queryString = queryParams.toString();
+  const endpoint = queryString ? `${API_ENDPOINTS.PAYSLIPS}?${queryString}` : API_ENDPOINTS.PAYSLIPS;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Get payslip
+ */
+export const getPayslip = async (payslipId) => {
+  return apiClient.request(API_ENDPOINTS.PAYSLIP(payslipId));
+};
+
+/**
+ * Download payslip PDF
+ */
+export const downloadPayslipPDF = async (payslipId) => {
+  const accessToken = apiClient.getAccessToken();
+  const response = await fetch(`${apiClient.baseURL}${API_ENDPOINTS.PAYSLIP_PDF(payslipId)}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) throw new Error("Failed to download payslip");
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `payslip-${payslipId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+};
+
+// ============================================================
+// Reports API
+// ============================================================
+
+/**
+ * Generate attendance report
+ */
+export const generateAttendanceReport = async (params) => {
+  return apiClient.request(API_ENDPOINTS.ATTENDANCE_REPORT, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+};
+
+/**
+ * Generate payroll report
+ */
+export const generatePayrollReport = async (params) => {
+  return apiClient.request(API_ENDPOINTS.PAYROLL_REPORT, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+};
+
+// ============================================================
+// Bank Transfers API
+// ============================================================
+
+/**
+ * Generate bank transfer file
+ */
+export const generateBankTransferFile = async (runId) => {
+  return apiClient.request(API_ENDPOINTS.BANK_TRANSFERS, {
+    method: "POST",
+    body: JSON.stringify({ payroll_run_id: runId }),
+  });
+};
+
+/**
+ * Download bank transfer file
+ */
+export const downloadBankTransferFile = async (fileId) => {
+  const accessToken = apiClient.getAccessToken();
+  const response = await fetch(`${apiClient.baseURL}${API_ENDPOINTS.BANK_TRANSFER_FILE(fileId)}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) throw new Error("Failed to download bank file");
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `bank-transfer-${fileId}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+};
+
+// ============================================================
+// Settlements API
+// ============================================================
+
+/**
+ * Calculate settlement
+ */
+export const calculateSettlement = async (personId, settlementDate) => {
+  return apiClient.request(API_ENDPOINTS.SETTLEMENTS, {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, settlement_date: settlementDate }),
+  });
+};
+
+/**
+ * Get settlement
+ */
+export const getSettlement = async (settlementId) => {
+  return apiClient.request(API_ENDPOINTS.SETTLEMENT(settlementId));
+};
+
+/**
+ * Approve settlement
+ */
+export const approveSettlement = async (settlementId) => {
+  return apiClient.request(API_ENDPOINTS.APPROVE_SETTLEMENT(settlementId), {
+    method: "POST",
+  });
+};
+
+// ============================================================
+// Payroll Run Operations
+// ============================================================
+
+/**
+ * Preview payroll run
+ */
+export const previewPayrollRun = async (runId) => {
+  return apiClient.request(API_ENDPOINTS.PREVIEW_PAYROLL(runId), {
+    method: "POST",
+  });
+};
+
+/**
+ * Approve payroll run
+ */
+export const approvePayrollRun = async (runId) => {
+  return apiClient.request(API_ENDPOINTS.APPROVE_PAYROLL(runId), {
+    method: "POST",
+  });
+};
+
+/**
+ * Lock payroll run
+ */
+export const lockPayrollRun = async (runId) => {
+  return apiClient.request(API_ENDPOINTS.LOCK_PAYROLL(runId), {
+    method: "POST",
+  });
+};
+
+/**
+ * Retroactive payroll adjustment
+ */
+export const retroactivePayroll = async (runId, adjustmentDate, adjustments) => {
+  return apiClient.request(API_ENDPOINTS.RETROACTIVE_PAYROLL(runId), {
+    method: "POST",
+    body: JSON.stringify({ adjustment_date: adjustmentDate, adjustments }),
   });
 };
 

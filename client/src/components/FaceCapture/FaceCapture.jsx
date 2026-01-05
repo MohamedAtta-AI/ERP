@@ -19,12 +19,12 @@ const POSE_SMOOTHING = {
   EMA_ALPHA: 0.3,
 };
 
-// Auto-capture settings
+// Auto-capture settings - faster for better UX
 const AUTO_CAPTURE = {
-  STABILITY_DURATION: 800,
-  BURST_COUNT: 3,
-  BURST_INTERVAL: 100,
-  COOLDOWN: 1500,
+  STABILITY_DURATION: 500, // Reduced from 800 for faster capture
+  BURST_COUNT: 2,          // Reduced from 3 for speed
+  BURST_INTERVAL: 80,
+  COOLDOWN: 1000,          // Reduced from 1500
 };
 
 // Target rectangle configuration (where face should be positioned)
@@ -79,14 +79,14 @@ const FaceCapture = ({
   const [faceData, setFaceData] = useState(null);
   const [faceInsideTarget, setFaceInsideTarget] = useState(false);
 
-  // Quality check states
+  // Quality check states - clearer messages
   const [qualityChecks, setQualityChecks] = useState({
-    faceDetected: { passed: false, message: "Loading..." },
-    facePosition: { passed: false, message: "Waiting..." },
-    faceSize: { passed: false, value: 0, message: "Waiting..." },
-    pose: { passed: false, message: "Checking..." },
-    brightness: { passed: false, value: 0, message: "Checking..." },
-    sharpness: { passed: false, value: 0, message: "Checking..." },
+    faceDetected: { passed: false, message: "Looking for face..." },
+    facePosition: { passed: false, message: "Position in box" },
+    faceSize: { passed: false, value: 0, message: "Adjust distance" },
+    pose: { passed: false, message: "Look straight" },
+    brightness: { passed: false, value: 0, message: "Checking light" },
+    sharpness: { passed: false, value: 0, message: "Hold steady" },
   });
   const [passedCount, setPassedCount] = useState(0);
   const [allChecksPassed, setAllChecksPassed] = useState(false);
@@ -1024,22 +1024,22 @@ const FaceCapture = ({
         </div>
       )}
 
-      {/* Instructions */}
+      {/* Instructions - clear status messages */}
       <div className={styles.instructions}>
         {capturedImage ? (
-          <p>
+          <p className={styles.successText}>
             {isMultiAngle
-              ? `All ${totalPoses} angles captured!`
-              : "Image captured!"}
+              ? `✓ All ${totalPoses} angles captured!`
+              : "✓ Image captured!"}
           </p>
         ) : !modelsLoaded ? (
-          <p>Loading face detection...</p>
+          <p className={styles.loadingText}>Starting camera...</p>
         ) : qualityStable && allChecksPassed ? (
-          <p className={styles.readyText}>✓ Ready! Auto-capturing...</p>
+          <p className={styles.readyText}>✓ Capturing now...</p>
         ) : allChecksPassed ? (
-          <p className={styles.readyText}>✓ Hold still...</p>
+          <p className={styles.readyText}>✓ Almost ready...</p>
         ) : (
-          <p>{getInstruction(qualityChecks, currentPose)}</p>
+          <p className={styles.instructionText}>{getInstruction(qualityChecks, currentPose)}</p>
         )}
       </div>
 
@@ -1203,15 +1203,23 @@ const drawOverlay = (canvas, landmarks, video, pose, currentPose, isInsideTarget
   }
 };
 
-// Get instruction based on quality checks
+// Get instruction based on quality checks - clear, actionable messages
 const getInstruction = (checks, currentPose) => {
-  if (!checks.faceDetected.passed) return checks.faceDetected.message;
-  if (!checks.facePosition.passed) return "Position your face inside the yellow box";
-  if (!checks.faceSize.passed) return checks.faceSize.message;
+  if (!checks.faceDetected.passed) return "Step in front of camera";
+  if (!checks.facePosition.passed) return "Move face into the yellow box";
+  if (!checks.faceSize.passed) {
+    if (checks.faceSize.message.includes("closer")) return "Move closer to camera";
+    if (checks.faceSize.message.includes("back")) return "Move back a little";
+    return "Adjust your distance";
+  }
   if (!checks.pose.passed) return currentPose.label;
-  if (!checks.brightness.passed) return checks.brightness.message;
-  if (!checks.sharpness.passed) return checks.sharpness.message;
-  return "Checking...";
+  if (!checks.brightness.passed) {
+    if (checks.brightness.message.includes("dark")) return "Need more light";
+    if (checks.brightness.message.includes("bright")) return "Too much light";
+    return "Adjust lighting";
+  }
+  if (!checks.sharpness.passed) return "Hold still...";
+  return "Ready!";
 };
 
 export default FaceCapture;

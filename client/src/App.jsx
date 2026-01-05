@@ -7,6 +7,16 @@ import MainDashboard from "./components/Dashboard/MainDashboard";
 import AttendancePage from "./components/Attendance/AttendancePage";
 import RegistrationPage from "./components/Registration/RegistrationPage";
 import AdminPage from "./components/Admin/AdminPage";
+import LocationsPage from "./components/Admin/LocationsPage";
+import ShiftsPage from "./components/Admin/ShiftsPage";
+import SkillsPage from "./components/Admin/SkillsPage";
+import PersonsPage from "./components/Admin/PersonsPage";
+import PayrollDashboard from "./components/Admin/PayrollDashboard";
+import SalaryAdvancesPage from "./components/Admin/SalaryAdvancesPage";
+import LoansPage from "./components/Admin/LoansPage";
+import ReportsPage from "./components/Admin/ReportsPage";
+import WorkersPage from "./components/Supervisor/WorkersPage";
+import OvertimeManagementPage from "./components/Supervisor/OvertimeManagementPage";
 import LoadingSpinner from "./components/Common/LoadingSpinner";
 import { faceDetectionService } from "./services/faceDetectionService";
 
@@ -81,6 +91,88 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Admin pages */}
+          <Route
+            path="/admin/locations"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <LocationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/shifts"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <ShiftsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/skills"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <SkillsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/persons"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <PersonsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/payroll"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <PayrollDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/advances"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <SalaryAdvancesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/loans"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <LoansPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/reports"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <ReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Supervisor pages */}
+          <Route
+            path="/supervisor/workers"
+            element={
+              <ProtectedRoute allowedRoles={['supervisor', 'admin']}>
+                <WorkersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/supervisor/overtime"
+            element={
+              <ProtectedRoute allowedRoles={['supervisor', 'admin']}>
+                <OvertimeManagementPage />
               </ProtectedRoute>
             }
           />

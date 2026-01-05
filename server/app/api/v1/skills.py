@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from server.app.database import get_session
+from server.app.dependencies import require_role, require_auth
 from server.app.schemas.skill import (
     SkillCreate, SkillRead, SkillUpdate,
     PersonSkillCreate, PersonSkillRead,
@@ -24,9 +25,10 @@ router = APIRouter()
 @router.post("", response_model=SkillRead, status_code=status.HTTP_201_CREATED)
 async def create_skill(
     data: SkillCreate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a new skill."""
+    """Create a new skill (Admin only)."""
     skill = Skill(**data.model_dump())
     session.add(skill)
     await session.flush()
@@ -37,9 +39,10 @@ async def create_skill(
 @router.get("", response_model=List[SkillRead])
 async def list_skills(
     active_only: bool = True,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all skills."""
+    """List all skills (Admin and Supervisor read-only)."""
     stmt = select(Skill)
     if active_only:
         stmt = stmt.where(Skill.is_active == True)
@@ -53,9 +56,10 @@ async def list_skills(
 @router.get("/{skill_id}", response_model=SkillRead)
 async def get_skill(
     skill_id: UUID,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get a skill by ID."""
+    """Get a skill by ID (Admin and Supervisor read-only)."""
     stmt = select(Skill).where(Skill.id == skill_id)
     result = await session.execute(stmt)
     skill = result.scalar_one_or_none()
@@ -70,9 +74,10 @@ async def get_skill(
 async def update_skill(
     skill_id: UUID,
     data: SkillUpdate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update a skill."""
+    """Update a skill (Admin only)."""
     stmt = select(Skill).where(Skill.id == skill_id)
     result = await session.execute(stmt)
     skill = result.scalar_one_or_none()
@@ -164,9 +169,10 @@ async def get_person_skills(
 @router.post("/pricing", response_model=SkillLocationPriceRead, status_code=status.HTTP_201_CREATED)
 async def create_skill_location_price(
     data: SkillLocationPriceCreate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create or update skill-location pricing."""
+    """Create or update skill-location pricing (Admin only)."""
     # Verify skill and location exist
     skill_stmt = select(Skill).where(Skill.id == data.skill_id)
     skill_result = await session.execute(skill_stmt)
@@ -217,9 +223,9 @@ async def create_skill_location_price(
 
 @router.get("/pricing", response_model=List[SkillLocationPriceRead])
 async def list_skill_location_prices(
+    session: AsyncSession = Depends(get_session),
     skill_id: UUID | None = None,
     location_id: UUID | None = None,
-    session: AsyncSession = Depends(get_session),
 ):
     """List skill-location prices."""
     stmt = select(SkillLocationPrice, Skill, Location).join(

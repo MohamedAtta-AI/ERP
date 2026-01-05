@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from server.app.database import get_session
+from server.app.dependencies import require_role, require_auth
 from server.app.schemas.shift import ShiftCreate, ShiftRead, ShiftUpdate
-from server.db.models import Shift
+from server.db.models import Shift, Person
 
 router = APIRouter()
 
@@ -19,9 +20,10 @@ router = APIRouter()
 @router.post("", response_model=ShiftRead, status_code=status.HTTP_201_CREATED)
 async def create_shift(
     data: ShiftCreate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a new shift."""
+    """Create a new shift (Admin only)."""
     shift = Shift(**data.model_dump())
     session.add(shift)
     await session.flush()
@@ -32,9 +34,10 @@ async def create_shift(
 @router.get("", response_model=List[ShiftRead])
 async def list_shifts(
     active_only: bool = True,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all shifts."""
+    """List all shifts (Admin and Supervisor read-only)."""
     stmt = select(Shift)
     if active_only:
         stmt = stmt.where(Shift.is_active == True)
@@ -48,9 +51,10 @@ async def list_shifts(
 @router.get("/{shift_id}", response_model=ShiftRead)
 async def get_shift(
     shift_id: UUID,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get a shift by ID."""
+    """Get a shift by ID (Admin and Supervisor read-only)."""
     stmt = select(Shift).where(Shift.id == shift_id)
     result = await session.execute(stmt)
     shift = result.scalar_one_or_none()
@@ -65,9 +69,10 @@ async def get_shift(
 async def update_shift(
     shift_id: UUID,
     data: ShiftUpdate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update a shift."""
+    """Update a shift (Admin only)."""
     stmt = select(Shift).where(Shift.id == shift_id)
     result = await session.execute(stmt)
     shift = result.scalar_one_or_none()
@@ -89,9 +94,10 @@ async def update_shift(
 @router.delete("/{shift_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_shift(
     shift_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a shift (soft delete by setting is_active=False)."""
+    """Delete a shift (soft delete by setting is_active=False) (Admin only)."""
     stmt = select(Shift).where(Shift.id == shift_id)
     result = await session.execute(stmt)
     shift = result.scalar_one_or_none()

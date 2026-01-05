@@ -36,6 +36,8 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY server/ ./server/
 COPY scripts/ ./scripts/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 COPY start_backend.py setup_db.py ./
 
 # Create data directories

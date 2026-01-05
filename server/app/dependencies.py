@@ -25,23 +25,37 @@ async def get_current_user(
     session: AsyncSession = Depends(get_session),
 ) -> Optional[Person]:
     """
-    Get current authenticated user from token.
+    Get current authenticated user from JWT token.
     
-    TODO: Implement actual JWT token validation.
-    For now, returns None (allows unauthenticated access in development).
+    Validates JWT token and returns Person object.
+    Returns None if no credentials provided (for optional auth endpoints).
     """
     if not credentials:
         return None
     
-    # TODO: Decode JWT token and get person_id
-    # For now, this is a placeholder
-    # token = credentials.credentials
-    # person_id = decode_jwt_token(token)
-    # stmt = select(Person).where(Person.id == person_id)
-    # result = await session.execute(stmt)
-    # return result.scalar_one_or_none()
+    from server.app.services.jwt_service import verify_token
     
-    return None
+    try:
+        token = credentials.credentials
+        payload = verify_token(token, "access")
+        person_id = payload["sub"]
+        
+        stmt = select(Person).where(Person.id == person_id)
+        result = await session.execute(stmt)
+        person = result.scalar_one_or_none()
+        
+        if not person:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+        
+        return person
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
 
 
 async def require_auth(

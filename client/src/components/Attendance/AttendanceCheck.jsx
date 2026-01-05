@@ -31,7 +31,7 @@ const AttendanceCheck = ({ onBack }) => {
         setLastAction(null);
         // Force FaceCapture to remount for next person
         setCaptureKey((k) => k + 1);
-      }, 2500); // Show "Verified" for 2.5 seconds
+      }, 2000); // Show "Verified" for 2 seconds (faster flow)
     }
     return () => {
       if (statusTimeoutRef.current) {

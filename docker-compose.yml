@@ -41,11 +41,21 @@ services:
       CUDA_VISIBLE_DEVICES: ""
       TF_CPP_MIN_LOG_LEVEL: "2"
       TF_ENABLE_ONEDNN_OPTS: "0"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      JWT_ACCESS_EXPIRE_MINUTES: ${JWT_ACCESS_EXPIRE_MINUTES:-15}
+      JWT_REFRESH_EXPIRE_DAYS: ${JWT_REFRESH_EXPIRE_DAYS:-7}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
+      - ./server:/app/server  # Hot-reload for development
       - ./data/uploads:/app/data/uploads
       - ./server/weights:/app/server/weights:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +70,14 @@ services:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     ports:
       - "${FRONTEND_PORT:-5173}:80"
+    volumes:
+      - ./client/src:/app/src  # Hot-reload for development
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       - backend
 

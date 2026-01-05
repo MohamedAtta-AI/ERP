@@ -10,13 +10,14 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 
 from server.app.database import get_session
+from server.app.dependencies import require_auth, get_user_role
 from server.app.schemas.attendance import (
     AttendanceVerifyResponse,
     AttendanceCheckInRequest,
@@ -86,10 +87,11 @@ async def verify_attendance(
         )
     
     # Query all persons with face embeddings
+    from server.db.models import PersonStatus
     stmt = select(Person).where(
         and_(
             Person.face_embedding.isnot(None),
-            Person.status == "active",
+            Person.status == PersonStatus.ACTIVE,
         )
     )
     result = await session.execute(stmt)
@@ -129,15 +131,45 @@ async def verify_attendance(
 @router.post("/check-in", response_model=AttendanceCheckInResponse)
 async def check_in(
     request: AttendanceCheckInRequest,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Record a check-in for a verified person.
     
+    Supervisor: Can check-in for self + workers under them.
+    Worker: Can check-in for self only.
+    Admin: Can check-in for any person.
+    
     Should be called after successful face verification.
     Creates or updates attendance record for today.
     """
     person_id = request.person_id
+    role_name = await get_user_role(current_user, session)
+    
+    # RBAC check
+    if role_name == "worker":
+        if person_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Workers can only check-in for themselves"
+            )
+    elif role_name == "supervisor":
+        if person_id != current_user.id:
+            # Check if person is a worker under this supervisor
+            person_stmt = select(Person).where(Person.id == person_id)
+            person_result = await session.execute(person_stmt)
+            person = person_result.scalar_one_or_none()
+            
+            if not person:
+                raise HTTPException(status_code=404, detail="Person not found")
+            
+            if person.supervisor_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Supervisors can only check-in for themselves or workers under them"
+                )
+    # Admin can check-in for anyone
     
     # Verify person exists
     stmt = select(Person).where(Person.id == person_id)
@@ -186,6 +218,7 @@ async def check_in(
             attendance_date=today,
             check_in=now,
             status=AttendanceStatus.PRESENT,
+            taken_by_person_id=current_user.id,
         )
         session.add(attendance)
     
@@ -214,14 +247,44 @@ async def check_in(
 @router.post("/check-out", response_model=AttendanceCheckOutResponse)
 async def check_out(
     request: AttendanceCheckOutRequest,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Record a check-out for a person.
     
+    Supervisor: Can check-out for self + workers under them.
+    Worker: Can check-out for self only.
+    Admin: Can check-out for any person.
+    
     Finds today's attendance record and updates check_out time.
     """
     person_id = request.person_id
+    role_name = await get_user_role(current_user, session)
+    
+    # RBAC check
+    if role_name == "worker":
+        if person_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Workers can only check-out for themselves"
+            )
+    elif role_name == "supervisor":
+        if person_id != current_user.id:
+            # Check if person is a worker under this supervisor
+            person_stmt = select(Person).where(Person.id == person_id)
+            person_result = await session.execute(person_stmt)
+            person = person_result.scalar_one_or_none()
+            
+            if not person:
+                raise HTTPException(status_code=404, detail="Person not found")
+            
+            if person.supervisor_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Supervisors can only check-out for themselves or workers under them"
+                )
+    # Admin can check-out for anyone
     today = date.today()
     now = datetime.utcnow()
     
@@ -273,16 +336,50 @@ async def get_attendance_history(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     limit: int = 100,
+    current_user: Person = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Get attendance history with optional filters.
+    
+    Supervisor: Can see own attendance + workers under them.
+    Worker: Can see own attendance only.
+    Admin: Can see all attendance.
     """
+    role_name = await get_user_role(current_user, session)
     stmt = select(Attendance).options(
         selectinload(Attendance.person),
         selectinload(Attendance.location),
         selectinload(Attendance.shift),
     )
+    
+    # RBAC filtering
+    if role_name == "worker":
+        # Worker can only see own attendance
+        stmt = stmt.where(Attendance.person_id == current_user.id)
+    elif role_name == "supervisor":
+        # Supervisor can see own + workers under them
+        if person_id and person_id != current_user.id:
+            # Verify person is under supervisor
+            person_stmt = select(Person).where(Person.id == person_id)
+            person_result = await session.execute(person_stmt)
+            person = person_result.scalar_one_or_none()
+            
+            if person and person.supervisor_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Supervisors can only view attendance for themselves or workers under them"
+                )
+        else:
+            # Filter to own + workers
+            from sqlalchemy import or_
+            stmt = stmt.join(Person).where(
+                or_(
+                    Attendance.person_id == current_user.id,
+                    Person.supervisor_id == current_user.id
+                )
+            )
+    # Admin can see all
     
     conditions = []
     if person_id:
@@ -332,8 +429,8 @@ class ReconcileResponse(BaseModel):
 
 @router.post("/reconcile", response_model=ReconcileResponse)
 async def reconcile_attendance_endpoint(
-    request: ReconcileRequest = None,
     session: AsyncSession = Depends(get_session),
+    request: ReconcileRequest = None,
 ):
     """
     Reconcile attendance for a specific date (or today).

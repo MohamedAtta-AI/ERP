@@ -40,29 +40,35 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      // Fetch person details
-      const response = await fetch(`${API_BASE_URL}/api/v1/employees/${personId}`);
+      // Use JWT login endpoint
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          person_id: personId,
+        }),
+      });
+
       if (!response.ok) {
-        throw new Error('Invalid person ID');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Login failed');
       }
 
-      const person = await response.json();
+      const data = await response.json();
       
-      // Determine role
-      const role = person.role || 'worker';
-      
-      // Only allow admin and supervisor roles
-      if (role !== 'admin' && role !== 'supervisor') {
-        throw new Error('Access denied. Only admins and supervisors can log in.');
-      }
-      
-      // Login user
-      login({
-        id: person.person_id || person.id,
-        full_name: person.full_name,
-        role: role,
-        ...person,
-      });
+      // Login user with tokens
+      login(
+        {
+          id: data.user.id,
+          full_name: data.user.full_name,
+          role: data.user.role,
+          ...data.user,
+        },
+        data.access_token,
+        data.refresh_token
+      );
 
       // Redirect to unified dashboard
       navigate('/dashboard');
@@ -120,13 +126,20 @@ const LoginPage = () => {
               type="button" 
               onClick={async () => { 
                 setPersonId('ADMIN1');
-                // Directly call login logic
                 setLoading(true);
                 try {
-                  const response = await fetch(`${API_BASE_URL}/api/v1/employees/ADMIN1`);
-                  if (!response.ok) throw new Error('Failed to fetch admin');
-                  const person = await response.json();
-                  login({ id: person.id, full_name: person.full_name, role: person.role || 'admin', ...person });
+                  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ person_id: 'ADMIN1' }),
+                  });
+                  if (!response.ok) throw new Error('Failed to login as admin');
+                  const data = await response.json();
+                  login(
+                    { id: data.user.id, full_name: data.user.full_name, role: data.user.role, ...data.user },
+                    data.access_token,
+                    data.refresh_token
+                  );
                   navigate('/dashboard');
                 } catch (err) {
                   setError(err.message);
@@ -143,13 +156,20 @@ const LoginPage = () => {
               type="button" 
               onClick={async () => { 
                 setPersonId('SUPER1');
-                // Directly call login logic
                 setLoading(true);
                 try {
-                  const response = await fetch(`${API_BASE_URL}/api/v1/employees/SUPER1`);
-                  if (!response.ok) throw new Error('Failed to fetch supervisor');
-                  const person = await response.json();
-                  login({ id: person.id, full_name: person.full_name, role: person.role || 'supervisor', ...person });
+                  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ person_id: 'SUPER1' }),
+                  });
+                  if (!response.ok) throw new Error('Failed to login as supervisor');
+                  const data = await response.json();
+                  login(
+                    { id: data.user.id, full_name: data.user.full_name, role: data.user.role, ...data.user },
+                    data.access_token,
+                    data.refresh_token
+                  );
                   navigate('/dashboard');
                 } catch (err) {
                   setError(err.message);

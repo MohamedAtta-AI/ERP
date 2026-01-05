@@ -60,15 +60,23 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const login = (userData) => {
+  const login = (userData, accessToken, refreshToken) => {
     setUser(userData);
     localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
-    // Store session timestamp
     localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
+    if (accessToken) {
+      localStorage.setItem("access_token", accessToken);
+    }
+    if (refreshToken) {
+      localStorage.setItem("refresh_token", refreshToken);
+    }
   };
 
   const logout = () => {
     clearSession();
+    // Also clear JWT tokens
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
   };
 
   const hasRole = (role) => {

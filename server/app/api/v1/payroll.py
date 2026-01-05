@@ -4,7 +4,7 @@ Payroll API endpoints.
 
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from server.app.database import get_session
+from server.app.dependencies import require_role
 from server.app.schemas.payroll import (
     PayrollPeriodCreate, PayrollPeriodRead, PayrollPeriodUpdate,
     PayrollRunCreate, PayrollRunRead, PayrollRunUpdate, PayrollRunDetailRead,
@@ -44,9 +45,10 @@ async def create_payroll_period(
 
 @router.get("/periods", response_model=List[PayrollPeriodRead])
 async def list_payroll_periods(
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all payroll periods."""
+    """List all payroll periods (Admin only)."""
     stmt = select(PayrollPeriod).order_by(PayrollPeriod.start_date.desc())
     result = await session.execute(stmt)
     periods = result.scalars().all()
@@ -56,9 +58,10 @@ async def list_payroll_periods(
 @router.get("/periods/{period_id}", response_model=PayrollPeriodRead)
 async def get_payroll_period(
     period_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get a payroll period by ID."""
+    """Get a payroll period by ID (Admin only)."""
     stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
     result = await session.execute(stmt)
     period = result.scalar_one_or_none()
@@ -73,9 +76,14 @@ async def get_payroll_period(
 @router.post("/runs", response_model=PayrollRunRead, status_code=status.HTTP_201_CREATED)
 async def create_payroll_run(
     data: PayrollRunCreate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create and calculate a new payroll run."""
+    """
+    Create and calculate a new payroll run (Admin only).
+    
+    Calls calculate_payroll() service and returns PayrollRun with status DRAFT.
+    """
     # Verify period exists
     period_stmt = select(PayrollPeriod).where(PayrollPeriod.id == data.payroll_period_id)
     period_result = await session.execute(period_stmt)
@@ -90,7 +98,13 @@ async def create_payroll_run(
             data.payroll_period_id,
             data.location_id,
             session,
+            preview_mode=False,
         )
+        
+        # Set created_by
+        payroll_run.created_by_person_id = current_user.id
+        session.add(payroll_run)
+        await session.flush()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
@@ -118,13 +132,228 @@ async def create_payroll_run(
     )
 
 
+@router.post("/runs/{run_id}/preview")
+async def preview_payroll_run(
+    run_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Preview payroll before approval (Admin only).
+    
+    Calls calculate_payroll() with preview mode and returns calculated data without saving.
+    """
+    # Get existing run to get period and location
+    stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+    result = await session.execute(stmt)
+    run = result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="Payroll run not found")
+    
+    # Calculate in preview mode
+    try:
+        preview_data = await calculate_payroll(
+            run.payroll_period_id,
+            run.location_id,
+            session,
+            preview_mode=True,
+        )
+        return preview_data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/runs/{run_id}/approve", response_model=PayrollRunRead)
+async def approve_payroll_run(
+    run_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Approve payroll run (Admin only).
+    
+    Updates status to APPROVED, sets approved_by_person_id, and locks payroll run.
+    """
+    stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+    result = await session.execute(stmt)
+    run = result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="Payroll run not found")
+    
+    if run.status != PayrollRunStatus.DRAFT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot approve payroll run with status: {run.status.value}"
+        )
+    
+    run.status = PayrollRunStatus.APPROVED
+    run.approved_by_person_id = current_user.id
+    run.approved_at = datetime.utcnow()
+    run.updated_at = datetime.utcnow()
+    
+    session.add(run)
+    await session.flush()
+    await session.refresh(run)
+    
+    # Get location name
+    location_name = None
+    if run.location_id:
+        loc_stmt = select(Location).where(Location.id == run.location_id)
+        loc_result = await session.execute(loc_stmt)
+        location = loc_result.scalar_one_or_none()
+        if location:
+            location_name = location.name
+    
+    return PayrollRunRead(
+        id=run.id,
+        payroll_period_id=run.payroll_period_id,
+        location_id=run.location_id,
+        location_name=location_name,
+        status=run.status.value,
+        notes=run.notes,
+        created_by_person_id=run.created_by_person_id,
+        approved_by_person_id=run.approved_by_person_id,
+        created_at=run.created_at,
+        approved_at=run.approved_at,
+        updated_at=run.updated_at,
+    )
+
+
+@router.post("/runs/{run_id}/lock", response_model=PayrollRunRead)
+async def lock_payroll_run(
+    run_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Lock payroll run (Admin only).
+    
+    Updates status to LOCKED and prevents any modifications.
+    """
+    stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+    result = await session.execute(stmt)
+    run = result.scalar_one_or_none()
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="Payroll run not found")
+    
+    run.status = PayrollRunStatus.LOCKED
+    run.updated_at = datetime.utcnow()
+    
+    session.add(run)
+    await session.flush()
+    await session.refresh(run)
+    
+    # Get location name
+    location_name = None
+    if run.location_id:
+        loc_stmt = select(Location).where(Location.id == run.location_id)
+        loc_result = await session.execute(loc_stmt)
+        location = loc_result.scalar_one_or_none()
+        if location:
+            location_name = location.name
+    
+    return PayrollRunRead(
+        id=run.id,
+        payroll_period_id=run.payroll_period_id,
+        location_id=run.location_id,
+        location_name=location_name,
+        status=run.status.value,
+        notes=run.notes,
+        created_by_person_id=run.created_by_person_id,
+        approved_by_person_id=run.approved_by_person_id,
+        created_at=run.created_at,
+        approved_at=run.approved_at,
+        updated_at=run.updated_at,
+    )
+
+
+@router.post("/runs/{run_id}/retroactive")
+async def create_retroactive_adjustment(
+    run_id: UUID,
+    person_id: str,
+    component_id: UUID,
+    amount: float,
+    effective_from: Optional[date] = None,
+    effective_to: Optional[date] = None,
+    current_user: Person = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Create retroactive adjustment (Admin only).
+    
+    Creates adjustment payroll run for a specific person and component.
+    """
+    # Get original run
+    stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+    result = await session.execute(stmt)
+    original_run = result.scalar_one_or_none()
+    
+    if not original_run:
+        raise HTTPException(status_code=404, detail="Payroll run not found")
+    
+    # Create adjustment run
+    adjustment_run = PayrollRun(
+        payroll_period_id=original_run.payroll_period_id,
+        location_id=original_run.location_id,
+        status=PayrollRunStatus.DRAFT,
+        notes=f"Retroactive adjustment for person {person_id}, component {component_id}",
+        created_by_person_id=current_user.id,
+    )
+    session.add(adjustment_run)
+    await session.flush()
+    
+    # Create adjustment employee record
+    adjustment_employee = PayrollRunEmployee(
+        payroll_run_id=adjustment_run.id,
+        person_id=person_id,
+        gross=amount if amount > 0 else 0,
+        deductions=abs(amount) if amount < 0 else 0,
+        net=amount,
+    )
+    session.add(adjustment_employee)
+    await session.flush()
+    
+    # Create adjustment line
+    component_stmt = select(SalaryComponent).where(SalaryComponent.id == component_id)
+    component_result = await session.execute(component_stmt)
+    component = component_result.scalar_one_or_none()
+    
+    if component:
+        adjustment_line = PayrollRunLine(
+            payroll_run_employee_id=adjustment_employee.id,
+            component_id=component_id,
+            component_name_snapshot=component.name,
+            kind=component.kind,
+            amount=abs(amount),
+        )
+        session.add(adjustment_line)
+    
+    await session.flush()
+    await session.refresh(adjustment_run)
+    
+    return {
+        "adjustment_run_id": adjustment_run.id,
+        "person_id": person_id,
+        "component_id": component_id,
+        "amount": amount,
+        "message": "Retroactive adjustment created",
+    }
+
+
 @router.get("/runs", response_model=List[PayrollRunRead])
 async def list_payroll_runs(
     period_id: UUID | None = None,
     location_id: UUID | None = None,
+    status_filter: Optional[str] = None,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """List payroll runs with optional filters."""
+    """
+    List payroll runs with optional filters (Admin only).
+    """
     stmt = select(PayrollRun, Location).outerjoin(
         Location, PayrollRun.location_id == Location.id
     )
@@ -133,6 +362,13 @@ async def list_payroll_runs(
         stmt = stmt.where(PayrollRun.payroll_period_id == period_id)
     if location_id:
         stmt = stmt.where(PayrollRun.location_id == location_id)
+    
+    if status_filter:
+        try:
+            status_enum = PayrollRunStatus(status_filter)
+            stmt = stmt.where(PayrollRun.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status_filter}")
     
     stmt = stmt.order_by(PayrollRun.created_at.desc())
     
@@ -160,9 +396,10 @@ async def list_payroll_runs(
 @router.get("/runs/{run_id}", response_model=PayrollRunDetailRead)
 async def get_payroll_run(
     run_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get detailed payroll run data including employee breakdown."""
+    """Get detailed payroll run data including employee breakdown (Admin only)."""
     stmt = select(PayrollRun, Location).outerjoin(
         Location, PayrollRun.location_id == Location.id
     ).where(PayrollRun.id == run_id)
@@ -281,9 +518,14 @@ async def update_payroll_run(
 @router.post("/components", response_model=SalaryComponentRead, status_code=status.HTTP_201_CREATED)
 async def create_salary_component(
     data: SalaryComponentCreate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a new salary component."""
+    """
+    Create a new salary component (Admin only).
+    
+    Includes metadata: taxable, insurable, max_amount, priority.
+    """
     component = SalaryComponent(**data.model_dump())
     session.add(component)
     await session.flush()
@@ -294,9 +536,10 @@ async def create_salary_component(
 @router.get("/components", response_model=List[SalaryComponentRead])
 async def list_salary_components(
     active_only: bool = True,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all salary components."""
+    """List all salary components (Admin only)."""
     stmt = select(SalaryComponent)
     if active_only:
         stmt = stmt.where(SalaryComponent.active == True)
@@ -310,9 +553,10 @@ async def list_salary_components(
 @router.get("/components/{component_id}", response_model=SalaryComponentRead)
 async def get_salary_component(
     component_id: UUID,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get a salary component by ID."""
+    """Get a salary component by ID (Admin only)."""
     stmt = select(SalaryComponent).where(SalaryComponent.id == component_id)
     result = await session.execute(stmt)
     component = result.scalar_one_or_none()
@@ -327,9 +571,12 @@ async def get_salary_component(
 async def update_salary_component(
     component_id: UUID,
     data: SalaryComponentUpdate,
+    current_user: Person = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update a salary component."""
+    """
+    Update a salary component (Admin only).
+    """
     stmt = select(SalaryComponent).where(SalaryComponent.id == component_id)
     result = await session.execute(stmt)
     component = result.scalar_one_or_none()
