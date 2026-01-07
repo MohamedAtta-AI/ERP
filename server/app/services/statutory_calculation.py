@@ -154,3 +154,5 @@ async def get_insurable_components(
     
     return [ec for ec, sc in rows]
 
+
+

@@ -233,3 +233,5 @@ const LoansPage = () => {
 
 export default LoansPage;
 
+
+

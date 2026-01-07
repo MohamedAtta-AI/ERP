@@ -46,3 +46,5 @@ async def test_list_payroll_periods(client: AsyncClient, admin_user):
     data = response.json()
     assert isinstance(data, list)
 
+
+

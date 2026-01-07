@@ -30,3 +30,5 @@ docker-compose exec -T backend curl -f http://localhost:8000/health || exit 1
 
 echo "✅ All services started successfully!"
 
+
+

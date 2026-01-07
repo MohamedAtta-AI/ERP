@@ -62,3 +62,5 @@ async def test_list_persons_supervisor(client: AsyncClient, supervisor_user, wor
     data = response.json()
     assert isinstance(data, list)
 
+
+

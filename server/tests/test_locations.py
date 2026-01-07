@@ -67,3 +67,5 @@ async def test_list_locations(client: AsyncClient, admin_user, test_location):
     assert isinstance(data, list)
     assert len(data) > 0
 
+
+

@@ -27,7 +27,7 @@ from server.app.schemas.attendance import (
     AttendanceRead,
 )
 from server.db.models import Person, Attendance, AttendanceStatus, Location
-from server.services.face_recognition import FaceRecognitionService
+from server.app.services.face_recognition import FaceRecognitionService
 from server.app.services.attendance_automation import reconcile_attendance
 from server.config import config
 

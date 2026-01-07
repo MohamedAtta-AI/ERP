@@ -28,7 +28,7 @@ from server.db.models import (
     Person, PersonStatus, Role, EmploymentStatus, WorkerType, ContractType,
     PayCycle, InsuranceStatus, PaymentMethod, PaymentStatus
 )
-from server.services.face_recognition import FaceRecognitionService
+from server.app.services.face_recognition import FaceRecognitionService
 from sqlalchemy.orm import selectinload
 
 router = APIRouter()

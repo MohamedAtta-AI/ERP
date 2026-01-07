@@ -369,7 +369,7 @@ class SkillLocationPrice(SQLModel, table=True):
     location_id: UUID = Field(foreign_key="location.id", primary_key=True)
     
     price: float = Field(ge=0)  # Price per hour or per day
-    currency: str = Field(default="USD", max_length=3)
+    currency: str = Field(default="EGP", max_length=3)
     effective_from: Optional[date] = Field(default=None)
     effective_to: Optional[date] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -471,7 +471,6 @@ class ComponentKind(str, Enum):
 
 
 class ComponentType(str, Enum):
-    BASE_SALARY = "base_salary"
     OVERTIME = "overtime"
     ALLOWANCE = "allowance"
     INCENTIVE = "incentive"
@@ -500,7 +499,7 @@ class SalaryComponent(SQLModel, table=True):
     kind: ComponentKind
     type: ComponentType
     amount_type: AmountType
-    amount: float = Field(ge=0)  # Base amount (can be overridden per employee)
+    amount: float = Field(ge=0)
     active: bool = Field(default=True)
     
     # Metadata fields

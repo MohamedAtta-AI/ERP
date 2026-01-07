@@ -97,3 +97,5 @@ async def get_settlement(
     # For now, this is a placeholder
     raise HTTPException(status_code=501, detail="Settlement retrieval not yet implemented")
 
+
+
