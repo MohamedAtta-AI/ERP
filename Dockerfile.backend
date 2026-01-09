@@ -5,10 +5,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
-    DEEPFACE_HOME=/app/server \
-    CUDA_VISIBLE_DEVICES="" \
-    TF_CPP_MIN_LOG_LEVEL="2" \
-    TF_ENABLE_ONEDNN_OPTS="0"
+    DEEPFACE_HOME=/app/server/weights
 
 # Install system dependencies for OpenCV, DeepFace, and PostgreSQL
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,9 +33,7 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY server/ ./server/
 COPY scripts/ ./scripts/
-COPY alembic.ini ./
-COPY alembic/ ./alembic/
-COPY start_backend.py setup_db.py ./
+COPY start_backend.py ./
 
 # Create data directories
 RUN mkdir -p /app/data/uploads
@@ -46,10 +41,5 @@ RUN mkdir -p /app/data/uploads
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
 # Run the application
 CMD ["uv", "run", "python", "start_backend.py"]
-

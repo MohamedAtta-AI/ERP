@@ -24,7 +24,6 @@ class AttendanceVerifyResponse(BaseModel):
     full_name: Optional[str] = None
     department: Optional[str] = None
     similarity_score: Optional[float] = None
-    is_real: Optional[bool] = None  # Anti-spoofing result
     message: Optional[str] = None
     
     class Config:

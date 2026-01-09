@@ -12,8 +12,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, status
 from pydantic import BaseModel
+from sqlmodel import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 
 from server.app.database import get_session
@@ -58,8 +58,6 @@ async def verify_attendance(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:  # 5MB limit
-        raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
     
     # Convert to numpy array
     try:
@@ -74,17 +72,16 @@ async def verify_attendance(
     
     # Generate embedding and check anti-spoofing
     try:
-        embedding, is_real = face_service.generate_embedding(image)
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    # Anti-spoofing check - reject if spoofing detected
-    if is_real is False:
+        embedding = face_service.generate_embedding(image)
+
+    except ValueError as e: # Spoofing detected
         return AttendanceVerifyResponse(
             match_found=False,
-            is_real=False,
-            message="Spoofing detected. Please use your real face.",
+            message="Spoof detected in the given image.",
         )
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     # Query all persons with face embeddings
     from server.db.models import PersonStatus
@@ -100,7 +97,6 @@ async def verify_attendance(
     if not persons:
         return AttendanceVerifyResponse(
             match_found=False,
-            is_real=is_real,
             message="No enrolled faces found",
         )
     
@@ -116,14 +112,12 @@ async def verify_attendance(
             full_name=matched_person.full_name,
             department=matched_person.department,
             similarity_score=best_score,
-            is_real=is_real,
             message="Face verified successfully",
         )
     
     return AttendanceVerifyResponse(
         match_found=False,
         similarity_score=best_score if best_score > 0 else None,
-        is_real=is_real,
         message="Face not recognized",
     )
 
