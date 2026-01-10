@@ -10,17 +10,17 @@ from ..config import config
 
 class PersonSkillLink(SQLModel, table=True):
     person_id: str | None = Field(default=None, primary_key=True, foreign_key="person.id", ondelete="CASCADE")
-    skill_id: str | None = Field(default=None, primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
+    skill_id: UUID | None = Field(default=None, primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
 
 
 class PersonSalaryComponentLink(SQLModel, table=True):
     person_id: str | None = Field(default=None, primary_key=True, foreign_key="person.id", ondelete="CASCADE")
-    salary_component_id: str | None = Field(default=None, primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE")
+    salary_component_id: UUID | None = Field(default=None, primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE")
 
 
 class SiteSkillLink(SQLModel, table=True):
-    site_id: str | None = Field(default=None, primary_key=True, foreign_key="site.id", ondelete="CASCADE")
-    skill_id: str | None = Field(default=None, primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
+    site_id: UUID | None = Field(default=None, primary_key=True, foreign_key="site.id", ondelete="CASCADE")
+    skill_id: UUID | None = Field(default=None, primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
 
 
 class Person(SQLModel, table=True):
@@ -127,11 +127,11 @@ class Site(SQLModel, table=True):
 class SkillValue(SQLModel, table=True):
     amount: float = Field(default=0, ge=0)
 
-    site_id: str = Field(primary_key=True, foreign_key="site.id", ondelete="CASCADE")
+    site_id: UUID = Field(primary_key=True, foreign_key="site.id", ondelete="CASCADE")
     site: Site = Relationship(back_populates="skill_values")
-    skill_id: str = Field(primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
+    skill_id: UUID = Field(primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
     skill: Skill = Relationship(back_populates="skill_values")
-    salary_component_id: str = Field(primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE")
+    salary_component_id: UUID = Field(primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE")
     salary_component: SalaryComponent = Relationship(back_populates="skill_values")
 
 
@@ -155,8 +155,9 @@ class Attendance(SQLModel, table=True):
     
     person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person = Relationship(back_populates="attendances")
-    assignment_id: str | None = Field(foreign_key="assignment.id", ondelete="CASCADE")
+    assignment_id: UUID | None = Field(foreign_key="assignment.id", ondelete="CASCADE")
     assignment: Assignment = Relationship(back_populates="attendances")
+
     overtime_request: OvertimeRequest = Relationship(back_populates="attendance")
 
 
@@ -170,13 +171,17 @@ class OvertimeRequest(SQLModel, table=True):
 
 
 class Assignment(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     title: str | None = Field(default=None)
+    effective_from: date = Field(default_factory=date.today)
+    effective_to: date | None = Field(default=None)
     
-    person_id: str | None = Field(primary_key=True, foreign_key="person.id", ondelete="CASCADE")
+    person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person = Relationship(back_populates="assignments")
-    site_id: str | None = Field(primary_key=True, foreign_key="site.id", ondelete="CASCADE")
+    site_id: UUID | None = Field(foreign_key="site.id", ondelete="CASCADE")
     site: Site = Relationship(back_populates="assignments")
-    shift_id: str | None = Field(primary_key=True, foreign_key="shift.id", ondelete="CASCADE")
+    shift_id: UUID | None = Field(foreign_key="shift.id", ondelete="CASCADE")
     shift: Shift = Relationship(back_populates="assignments")
 
     attendances: list["Attendance"] = Relationship(back_populates="assignment")
+
