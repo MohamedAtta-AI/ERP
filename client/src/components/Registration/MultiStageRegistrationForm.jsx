@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { registerEmployee, listLocations, listShifts, createAssignment, listSalaryComponents, setEmployeeComponent } from "../../services/api";
-import { useAuth } from "../../contexts/AuthContext";
 import Button from "../Common/Button";
 import ErrorMessage from "../Common/ErrorMessage";
 import styles from "./MultiStageRegistrationForm.module.css";
 
-// Tabs differ based on user role - supervisors can't set payroll
-const ALL_TABS = [
+const TABS = [
   { id: "personal", label: "Personal Info", icon: "👤" },
   { id: "contact", label: "Contact", icon: "📧" },
   { id: "employment", label: "Employment", icon: "💼" },
   { id: "assignment", label: "Assignment", icon: "📍" },
-  { id: "payroll", label: "Payroll", icon: "💰", adminOnly: true },
+  { id: "payroll", label: "Payroll", icon: "💰" },
 ];
 
 const DEPARTMENTS = [
@@ -31,12 +29,6 @@ const DEPARTMENTS = [
 ];
 
 const MultiStageRegistrationForm = ({ onSuccess }) => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  
-  // Filter tabs based on role
-  const TABS = ALL_TABS.filter(tab => !tab.adminOnly || isAdmin);
-  
   const [currentTab, setCurrentTab] = useState(0);
   const [formData, setFormData] = useState({
     // Personal Info
@@ -100,12 +92,11 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
     }
   };
 
-  // Validate current tab fields based on tab ID (not index)
+  // Validate current tab fields
   const validateTab = (tabIndex) => {
     const newErrors = {};
-    const currentTabId = TABS[tabIndex]?.id;
 
-    if (currentTabId === "personal") {
+    if (tabIndex === 0) {
       // Personal Info
       if (!formData.full_name.trim()) {
         newErrors.full_name = "Full name is required";
@@ -114,7 +105,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
       }
     }
 
-    if (currentTabId === "contact") {
+    if (tabIndex === 1) {
       // Contact
       if (!formData.email.trim()) {
         newErrors.email = "Email is required";
@@ -123,14 +114,14 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
       }
     }
 
-    if (currentTabId === "employment") {
+    if (tabIndex === 2) {
       // Employment
       if (!formData.department) {
         newErrors.department = "Department is required";
       }
     }
 
-    if (currentTabId === "assignment") {
+    if (tabIndex === 3) {
       // Assignment
       if (!formData.location_id) {
         newErrors.location_id = "Work location is required";
@@ -140,7 +131,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
       }
     }
 
-    // Payroll tab - optional, no required fields
+    // Tab 4 (Payroll) - optional, no required fields
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -329,7 +320,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
         {/* Tab Content */}
         <div className={styles.tabContent}>
           {/* Personal Info Tab */}
-          {TABS[currentTab]?.id === "personal" && (
+          {currentTab === 0 && (
             <div className={styles.tabPanel}>
               <div className={styles.formGroup}>
                 <label htmlFor="full_name" className={styles.label}>
@@ -407,7 +398,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
           )}
 
           {/* Contact Tab */}
-          {TABS[currentTab]?.id === "contact" && (
+          {currentTab === 1 && (
             <div className={styles.tabPanel}>
               <div className={styles.formGroup}>
                 <label htmlFor="email" className={styles.label}>
@@ -448,7 +439,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
           )}
 
           {/* Employment Tab */}
-          {TABS[currentTab]?.id === "employment" && (
+          {currentTab === 2 && (
             <div className={styles.tabPanel}>
               <div className={styles.formGroup}>
                 <label htmlFor="department" className={styles.label}>
@@ -494,7 +485,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
           )}
 
           {/* Assignment Tab */}
-          {TABS[currentTab]?.id === "assignment" && (
+          {currentTab === 3 && (
             <div className={styles.tabPanel}>
               <div className={styles.formGroup}>
                 <label htmlFor="location_id" className={styles.label}>
@@ -585,7 +576,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
           )}
 
           {/* Payroll Tab */}
-          {TABS[currentTab]?.id === "payroll" && (
+          {currentTab === 4 && (
             <div className={styles.tabPanel}>
               <div className={styles.formGroup}>
                 <label htmlFor="base_salary" className={styles.label}>

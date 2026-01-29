@@ -2,11 +2,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-// Session expiration time: 24 hours (in milliseconds)
-const SESSION_EXPIRATION_TIME = 24 * 60 * 60 * 1000;
-const SESSION_KEY = 'user';
-const SESSION_TIMESTAMP_KEY = 'user_session_timestamp';
-
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -19,64 +14,27 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if session is expired
-  const isSessionExpired = () => {
-    const timestamp = localStorage.getItem(SESSION_TIMESTAMP_KEY);
-    if (!timestamp) return true;
-    
-    const sessionTime = parseInt(timestamp, 10);
-    const now = Date.now();
-    return (now - sessionTime) > SESSION_EXPIRATION_TIME;
-  };
-
-  // Clear expired session
-  const clearSession = () => {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(SESSION_TIMESTAMP_KEY);
-    setUser(null);
-  };
-
   useEffect(() => {
     // Check for stored user session
-    const storedUser = localStorage.getItem(SESSION_KEY);
-    
+    const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
-        // Check if session is expired
-        if (isSessionExpired()) {
-          clearSession();
-        } else {
-          // Restore user and update session timestamp
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
-          // Update session timestamp to extend session
-          localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
-        }
+        setUser(JSON.parse(storedUser));
       } catch (e) {
-        // Invalid stored data, clear it
-        clearSession();
+        localStorage.removeItem('user');
       }
     }
     setLoading(false);
   }, []);
 
-  const login = (userData, accessToken, refreshToken) => {
+  const login = (userData) => {
     setUser(userData);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
-    localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
-    if (accessToken) {
-      localStorage.setItem("access_token", accessToken);
-    }
-    if (refreshToken) {
-      localStorage.setItem("refresh_token", refreshToken);
-    }
+    localStorage.setItem('user', JSON.stringify(userData));
   };
 
   const logout = () => {
-    clearSession();
-    // Also clear JWT tokens
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+    setUser(null);
+    localStorage.removeItem('user');
   };
 
   const hasRole = (role) => {

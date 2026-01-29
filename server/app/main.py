@@ -1,9 +1,3 @@
-"""
-OnTime ERP - FastAPI Application Entry Point
-
-This module creates and configures the FastAPI application.
-"""
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

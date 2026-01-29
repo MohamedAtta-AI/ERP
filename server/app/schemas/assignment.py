@@ -1,7 +1,3 @@
-"""
-Assignment Pydantic Schemas for API validation.
-"""
-
 from typing import Optional
 from datetime import datetime, date
 from uuid import UUID
@@ -9,7 +5,6 @@ from pydantic import BaseModel, Field
 
 
 class AssignmentCreate(BaseModel):
-    """Schema for creating an assignment."""
     person_id: str = Field(..., min_length=6, max_length=6)
     location_id: UUID
     shift_id: UUID
@@ -20,7 +15,6 @@ class AssignmentCreate(BaseModel):
 
 
 class AssignmentRead(BaseModel):
-    """Schema for reading assignment data."""
     id: UUID
     person_id: str
     person_name: str
@@ -40,10 +34,8 @@ class AssignmentRead(BaseModel):
 
 
 class AssignmentUpdate(BaseModel):
-    """Schema for updating an assignment."""
     title: Optional[str] = Field(None, max_length=100)
     rate: Optional[float] = Field(None, ge=0)
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
     is_active: Optional[bool] = None
-

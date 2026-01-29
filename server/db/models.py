@@ -58,7 +58,6 @@ class FaceEmbedding(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     embedding: Optional[list[float]] = Field(default=None, sa_column=Column(Vector(config.EMBEDDING_SIZE)))
 
-
     person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person | None = Relationship(back_populates="face_embeddings")
 
@@ -175,6 +174,7 @@ class Assignment(SQLModel, table=True):
     title: str | None = Field(default=None)
     effective_from: date = Field(default_factory=date.today)
     effective_to: date | None = Field(default=None)
+    rate: float = Field(default=0, ge=0)
     
     person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person = Relationship(back_populates="assignments")

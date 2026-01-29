@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-  listLocations, createLocation, deleteLocation, updateLocation,
-  listShifts, createShift, deleteShift, updateShift,
-  listEmployees, getAttendanceHistory, reconcileAttendance, getEmployee, updateEmployee,
+  listLocations, createLocation, deleteLocation,
+  listShifts, createShift, deleteShift,
+  listEmployees, getAttendanceHistory, reconcileAttendance,
   listOvertimeRequests, approveOvertime, rejectOvertime,
   listPayrollPeriods, listPayrollRuns,
 } from "../../services/api";
@@ -29,24 +29,11 @@ const AdminPage = () => {
 
   // Data states
   const [locations, setLocations] = useState([]);
-  const [filteredLocations, setFilteredLocations] = useState([]);
   const [shifts, setShifts] = useState([]);
-  const [filteredShifts, setFilteredShifts] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [overtimeRequests, setOvertimeRequests] = useState([]);
-  const [filteredOvertime, setFilteredOvertime] = useState([]);
   const [payrollPeriods, setPayrollPeriods] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
-  const [searchTerms, setSearchTerms] = useState({
-    locations: '',
-    shifts: '',
-    employees: '',
-    overtime: '',
-  });
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [editEmployeeMode, setEditEmployeeMode] = useState(false);
-  const [editEmployeeForm, setEditEmployeeForm] = useState({});
   const [stats, setStats] = useState({
     totalEmployees: 0,
     presentToday: 0,
@@ -83,13 +70,9 @@ const AdminPage = () => {
       ]);
 
       setLocations(locationsData || []);
-      setFilteredLocations(locationsData || []);
       setShifts(shiftsData || []);
-      setFilteredShifts(shiftsData || []);
       setEmployees(employeesData || []);
-      setFilteredEmployees(employeesData || []);
       setOvertimeRequests(overtimeData || []);
-      setFilteredOvertime(overtimeData || []);
       setPayrollPeriods(payrollData || []);
       setTodayAttendance(attendanceData || []);
 
@@ -111,51 +94,6 @@ const AdminPage = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  // Filter data based on search terms
-  useEffect(() => {
-    if (!searchTerms.locations.trim()) {
-      setFilteredLocations(locations);
-    } else {
-      setFilteredLocations(locations.filter(loc =>
-        loc.name?.toLowerCase().includes(searchTerms.locations.toLowerCase()) ||
-        loc.city?.toLowerCase().includes(searchTerms.locations.toLowerCase())
-      ));
-    }
-  }, [searchTerms.locations, locations]);
-
-  useEffect(() => {
-    if (!searchTerms.shifts.trim()) {
-      setFilteredShifts(shifts);
-    } else {
-      setFilteredShifts(shifts.filter(shift =>
-        shift.name?.toLowerCase().includes(searchTerms.shifts.toLowerCase())
-      ));
-    }
-  }, [searchTerms.shifts, shifts]);
-
-  useEffect(() => {
-    if (!searchTerms.employees.trim()) {
-      setFilteredEmployees(employees);
-    } else {
-      setFilteredEmployees(employees.filter(emp =>
-        emp.full_name?.toLowerCase().includes(searchTerms.employees.toLowerCase()) ||
-        (emp.person_id || emp.id)?.toLowerCase().includes(searchTerms.employees.toLowerCase()) ||
-        emp.email?.toLowerCase().includes(searchTerms.employees.toLowerCase())
-      ));
-    }
-  }, [searchTerms.employees, employees]);
-
-  useEffect(() => {
-    if (!searchTerms.overtime.trim()) {
-      setFilteredOvertime(overtimeRequests);
-    } else {
-      setFilteredOvertime(overtimeRequests.filter(req =>
-        req.person_name?.toLowerCase().includes(searchTerms.overtime.toLowerCase()) ||
-        req.person_id?.toLowerCase().includes(searchTerms.overtime.toLowerCase())
-      ));
-    }
-  }, [searchTerms.overtime, overtimeRequests]);
 
   // Handle create location
   const handleCreateLocation = async (e) => {
@@ -215,48 +153,12 @@ const AdminPage = () => {
 
   // Handle reject overtime
   const handleRejectOvertime = async (id) => {
-    const reason = window.prompt('Rejection reason:');
-    if (!reason) return;
     try {
-      await rejectOvertime(id, reason);
+      await rejectOvertime(id, "Rejected by admin");
       setSuccessMessage("Overtime rejected");
       loadData();
     } catch (err) {
       setError(err.message || "Failed to reject overtime");
-    }
-  };
-
-  // Handle edit employee
-  const handleEditEmployee = async (employee) => {
-    try {
-      const details = await getEmployee(employee.person_id || employee.id);
-      setSelectedEmployee(details);
-      setEditEmployeeForm({
-        full_name: details.full_name || '',
-        phone: details.phone || '',
-        email: details.email || '',
-        department: details.department || '',
-        position: details.position || '',
-        identity_number: details.identity_number || '',
-        dob: details.dob || '',
-        sex: details.sex || '',
-      });
-      setEditEmployeeMode(true);
-    } catch (err) {
-      setError(err.message || "Failed to load employee details");
-    }
-  };
-
-  const handleSaveEmployee = async (e) => {
-    e.preventDefault();
-    try {
-      await updateEmployee(selectedEmployee.person_id || selectedEmployee.id, editEmployeeForm);
-      setSuccessMessage("Employee updated successfully!");
-      setEditEmployeeMode(false);
-      setSelectedEmployee(null);
-      loadData();
-    } catch (err) {
-      setError(err.message || "Failed to update employee");
     }
   };
 
@@ -397,21 +299,12 @@ const AdminPage = () => {
             <div className={styles.section}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>Locations</h2>
-                <div className={styles.headerActions}>
-                  <input
-                    type="text"
-                    placeholder="Search locations..."
-                    value={searchTerms.locations}
-                    onChange={(e) => setSearchTerms({ ...searchTerms, locations: e.target.value })}
-                    className={styles.searchInput}
-                  />
-                  <button
-                    className={styles.addBtn}
-                    onClick={() => setShowAddLocation(!showAddLocation)}
-                  >
-                    {showAddLocation ? "Cancel" : "+ Add Location"}
-                  </button>
-                </div>
+                <button
+                  className={styles.addBtn}
+                  onClick={() => setShowAddLocation(!showAddLocation)}
+                >
+                  {showAddLocation ? "Cancel" : "+ Add Location"}
+                </button>
               </div>
 
               {showAddLocation && (
@@ -443,12 +336,10 @@ const AdminPage = () => {
               )}
 
               <div className={styles.itemList}>
-                {filteredLocations.length === 0 ? (
-                  <p className={styles.emptyText}>
-                    {searchTerms.locations ? 'No locations found matching your search' : 'No locations configured'}
-                  </p>
+                {locations.length === 0 ? (
+                  <p className={styles.emptyText}>No locations configured</p>
                 ) : (
-                  filteredLocations.map((loc) => (
+                  locations.map((loc) => (
                     <div key={loc.id} className={styles.itemCard}>
                       <div className={styles.itemInfo}>
                         <span className={styles.itemName}>{loc.name}</span>
@@ -473,21 +364,12 @@ const AdminPage = () => {
             <div className={styles.section}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>Shifts</h2>
-                <div className={styles.headerActions}>
-                  <input
-                    type="text"
-                    placeholder="Search shifts..."
-                    value={searchTerms.shifts}
-                    onChange={(e) => setSearchTerms({ ...searchTerms, shifts: e.target.value })}
-                    className={styles.searchInput}
-                  />
-                  <button
-                    className={styles.addBtn}
-                    onClick={() => setShowAddShift(!showAddShift)}
-                  >
-                    {showAddShift ? "Cancel" : "+ Add Shift"}
-                  </button>
-                </div>
+                <button
+                  className={styles.addBtn}
+                  onClick={() => setShowAddShift(!showAddShift)}
+                >
+                  {showAddShift ? "Cancel" : "+ Add Shift"}
+                </button>
               </div>
 
               {showAddShift && (
@@ -534,12 +416,10 @@ const AdminPage = () => {
               )}
 
               <div className={styles.itemList}>
-                {filteredShifts.length === 0 ? (
-                  <p className={styles.emptyText}>
-                    {searchTerms.shifts ? 'No shifts found matching your search' : 'No shifts configured'}
-                  </p>
+                {shifts.length === 0 ? (
+                  <p className={styles.emptyText}>No shifts configured</p>
                 ) : (
-                  filteredShifts.map((shift) => (
+                  shifts.map((shift) => (
                     <div key={shift.id} className={styles.itemCard}>
                       <div className={styles.itemInfo}>
                         <span className={styles.itemName}>{shift.name || "Unnamed Shift"}</span>
@@ -566,25 +446,14 @@ const AdminPage = () => {
             <div className={styles.section}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>Employees ({employees.length})</h2>
-                <div className={styles.headerActions}>
-                  <input
-                    type="text"
-                    placeholder="Search employees..."
-                    value={searchTerms.employees}
-                    onChange={(e) => setSearchTerms({ ...searchTerms, employees: e.target.value })}
-                    className={styles.searchInput}
-                  />
-                  <Link to="/register" className={styles.addBtn}>+ Register New</Link>
-                </div>
+                <Link to="/register" className={styles.addBtn}>+ Register New</Link>
               </div>
 
               <div className={styles.itemList}>
-                {filteredEmployees.length === 0 ? (
-                  <p className={styles.emptyText}>
-                    {searchTerms.employees ? 'No employees found matching your search' : 'No employees registered'}
-                  </p>
+                {employees.length === 0 ? (
+                  <p className={styles.emptyText}>No employees registered</p>
                 ) : (
-                  filteredEmployees.map((emp) => (
+                  employees.map((emp) => (
                     <div key={emp.id || emp.person_id} className={styles.itemCard}>
                       <div className={styles.itemInfo}>
                         <span className={styles.itemName}>{emp.full_name}</span>
@@ -592,105 +461,16 @@ const AdminPage = () => {
                           ID: {emp.id || emp.person_id}
                           {emp.department && ` • ${emp.department}`}
                           {emp.position && ` • ${emp.position}`}
-                          {emp.email && ` • ${emp.email}`}
-                          {emp.phone && ` • ${emp.phone}`}
                         </span>
                       </div>
-                      <div className={styles.actionGroup}>
-                        <span className={`${styles.badge} ${
-                          emp.has_face_enrolled ? styles.badgeSuccess : styles.badgeWarning
-                        }`}>
-                          {emp.has_face_enrolled ? "Face Enrolled" : "No Face"}
-                        </span>
-                        <button
-                          className={styles.editBtn}
-                          onClick={() => handleEditEmployee(emp)}
-                        >
-                          Edit
-                        </button>
-                      </div>
+                      <span className={`${styles.badge} ${
+                        emp.has_face_enrolled ? styles.badgeSuccess : styles.badgeWarning
+                      }`}>
+                        {emp.has_face_enrolled ? "Face Enrolled" : "No Face"}
+                      </span>
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* Edit Employee Modal */}
-          {editEmployeeMode && selectedEmployee && (
-            <div className={styles.formModal}>
-              <div className={styles.formCard}>
-                <h2>Edit Employee: {selectedEmployee.full_name}</h2>
-                <form onSubmit={handleSaveEmployee}>
-                  <div className={styles.formGroup}>
-                    <label>Full Name *</label>
-                    <input
-                      type="text"
-                      value={editEmployeeForm.full_name}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, full_name: e.target.value })}
-                      required
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Email</label>
-                    <input
-                      type="email"
-                      value={editEmployeeForm.email}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, email: e.target.value })}
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Phone</label>
-                    <input
-                      type="tel"
-                      value={editEmployeeForm.phone}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, phone: e.target.value })}
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Department</label>
-                    <input
-                      type="text"
-                      value={editEmployeeForm.department}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, department: e.target.value })}
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Position</label>
-                    <input
-                      type="text"
-                      value={editEmployeeForm.position}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, position: e.target.value })}
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Identity Number</label>
-                    <input
-                      type="text"
-                      value={editEmployeeForm.identity_number}
-                      onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, identity_number: e.target.value })}
-                      className={styles.input}
-                    />
-                  </div>
-                  <div className={styles.formActions}>
-                    <button type="submit" className={styles.submitBtn}>Save</button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditEmployeeMode(false);
-                        setSelectedEmployee(null);
-                      }}
-                      className={styles.cancelButton}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
               </div>
             </div>
           )}
@@ -700,27 +480,16 @@ const AdminPage = () => {
             <div className={styles.section}>
               <div className={styles.sectionHeader}>
                 <h2 className={styles.sectionTitle}>Pending Overtime Requests</h2>
-                <div className={styles.headerActions}>
-                  <input
-                    type="text"
-                    placeholder="Search requests..."
-                    value={searchTerms.overtime}
-                    onChange={(e) => setSearchTerms({ ...searchTerms, overtime: e.target.value })}
-                    className={styles.searchInput}
-                  />
-                  <button onClick={handleReconcile} className={styles.addBtn}>
-                    🔄 Reconcile
-                  </button>
-                </div>
+                <button onClick={handleReconcile} className={styles.addBtn}>
+                  🔄 Reconcile
+                </button>
               </div>
 
               <div className={styles.itemList}>
-                {filteredOvertime.length === 0 ? (
-                  <p className={styles.emptyText}>
-                    {searchTerms.overtime ? 'No requests found matching your search' : 'No pending overtime requests'}
-                  </p>
+                {overtimeRequests.length === 0 ? (
+                  <p className={styles.emptyText}>No pending overtime requests</p>
                 ) : (
-                  filteredOvertime.map((req) => (
+                  overtimeRequests.map((req) => (
                     <div key={req.id} className={styles.itemCard}>
                       <div className={styles.itemInfo}>
                         <span className={styles.itemName}>{req.person_name || req.person_id}</span>

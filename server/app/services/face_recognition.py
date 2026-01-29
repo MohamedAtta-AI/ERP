@@ -29,9 +29,7 @@ class FaceRecognitionService:
         self.embedding_size = config.EMBEDDING_SIZE
         self.similarity_threshold = config.SIMILARITY_THRESHOLD
 
-    def generate_embedding(
-        self, image: np.ndarray
-    ) -> np.ndarray:
+    def generate_embedding(self, image: np.ndarray) -> list[float]:
         if self.model_name not in AVAILABLE_MODELS:
             raise ValueError(f"Invalid model name: {self.model_name}")
 
@@ -51,14 +49,9 @@ class FaceRecognitionService:
         if not embedding_objs or len(embedding_objs) == 0:
             raise ValueError("No embedding generated from image")
 
-        embedding_obj = embedding_objs[0]
-        embedding = np.array(embedding_obj["embedding"], dtype=np.float32)
+        return embedding_objs[0]["embedding"]
 
-        return embedding
-
-    def compute_similarity(
-        self, embedding1: np.ndarray, embedding2: np.ndarray
-    ) -> float:
+    def compute_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """
         Compute cosine similarity between two face embeddings.
         

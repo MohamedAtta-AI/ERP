@@ -1,11 +1,3 @@
-"""
-Person ID Generator Service
-
-Generates unique 6-character alphanumeric IDs for persons.
-Format: Uppercase letters (A-Z) and digits (0-9)
-Example: "A1B2C3", "X9Y8Z7"
-"""
-
 import random
 import string
 from typing import Set, Callable
@@ -93,5 +85,3 @@ def validate_person_id(person_id: str) -> bool:
     if not person_id or len(person_id) != ID_LENGTH:
         return False
     return all(c in CHARSET for c in person_id)
-
-
