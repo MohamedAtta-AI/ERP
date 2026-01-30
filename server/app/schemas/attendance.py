@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from datetime import date, datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
@@ -17,3 +17,18 @@ class AttendanceResponse(BaseModel):
     full_name: str
     timestamp: datetime
     similarity: float
+
+
+class AttendanceRead(BaseModel):
+    id: UUID
+    person_id: str
+    person_name: str
+    attendance_date: date
+    check_in: datetime
+    check_out: Optional[datetime] = None
+    status: str
+    location_name: Optional[str] = None
+    shift_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True

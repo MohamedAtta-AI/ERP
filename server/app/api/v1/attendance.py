@@ -1,26 +1,27 @@
 import io
+import cv2
 import numpy as np
 from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
+from collections import Counter
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
-from sqlalchemy.orm import selectinload
+from sqlmodel import Session, select, or_
+# from sqlalchemy.ext.asyncio import AsyncSession
+# from sqlalchemy.orm import selectinload
 
-from server.app.database import get_session
-from server.app.schemas.attendance import (
-    AttendanceVerifyResponse,
-    AttendanceCheckInRequest,
-    AttendanceCheckInResponse,
-    AttendanceCheckOutRequest,
-    AttendanceCheckOutResponse,
-    AttendanceRead,
+from server.db import get_session
+from server.app.dependencies import require_auth
+from server.db.models import (
+    Person, Attendance, AttendanceStatus, 
+    FaceEmbedding, Assignment,
+    OvertimeRequest, Role
 )
-from server.db.models import Person, Attendance, AttendanceStatus, Location
-from server.services.face_recognition import FaceRecognitionService
+from server.app.schemas.attendance import AttendanceResponse, AttendanceRead
+from server.app.schemas.overtime import OvertimeRequestCreate, OvertimeRequestUpdate, OvertimeRequestRead
+from server.app.services.face_recognition import FaceRecognitionService
 from server.app.services.attendance_automation import reconcile_attendance
 from server.config import config
 
@@ -30,233 +31,190 @@ router = APIRouter()
 face_service = FaceRecognitionService()
 
 
-@router.post("/verify", response_model=AttendanceVerifyResponse)
-async def verify_attendance(
-    file: UploadFile = File(..., description="Face image for verification"),
-    location_id: Optional[UUID] = Form(None),
-    shift_id: Optional[UUID] = Form(None),
-    session: AsyncSession = Depends(get_session),
+def get_today_attendance(session: Session, person_id: str) -> Optional[Attendance]:
+    """Helper to find today's attendance record for a person."""
+    return session.exec(
+        select(Attendance).where(
+            Attendance.person_id == person_id,
+            Attendance.date == date.today()
+        )
+    ).first()
+
+
+async def recognize_person(
+    image: UploadFile,
+    site_id: UUID,
+    shift_id: UUID,
+    session: Session,
 ):
-    """
-    Verify a face against enrolled persons.
-    
-    Performs:
-    1. Face detection and embedding extraction
-    2. Anti-spoofing check (is_real)
-    3. Vector similarity search against enrolled faces
-    4. Returns match if similarity >= threshold
-    """
-    # Read and validate image
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:  # 5MB limit
-        raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
-    
-    # Convert to numpy array
-    try:
-        import cv2
-        nparr = np.frombuffer(contents, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if image is None:
-            raise HTTPException(status_code=400, detail="Invalid image format")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
-    
     # Generate embedding and check anti-spoofing
     try:
-        embedding, is_real = face_service.generate_embedding(image)
+        contents = await image.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        embedding = face_service.generate_embedding(image)
+    
+        # Query top 3 nearest face embeddings with cosine distance
+        distance_col = FaceEmbedding.embedding.cosine_distance(embedding).label("distance")
+        results = session.exec(
+            select(FaceEmbedding, distance_col)
+            .order_by(distance_col)
+            .limit(3)
+        ).all()
+
+        # Group distances by person_id
+        person_matches = {} # person_id -> list of similarities
+        for face_emb, dist in results:
+            if face_emb.person_id:
+                similarity = 1 - float(dist)
+                if face_emb.person_id not in person_matches:
+                    person_matches[face_emb.person_id] = []
+                person_matches[face_emb.person_id].append(similarity)
+
+        matched_person_name = None
+        matched_person_id = None
+        avg_similarity = 0.0
+
+        # Check for at least two matches for any person
+        for pid, similarities in person_matches.items():
+            if len(similarities) >= 2:
+                avg_similarity = sum(similarities) / len(similarities)
+                
+                # Check against threshold
+                if avg_similarity < config.SIMILARITY_THRESHOLD:
+                    break
+                    
+                matched_person_id = pid
+                # Fetch person to get name
+                person = session.get(Person, matched_person_id)
+                if person:
+                    matched_person_name = person.full_name
+                break
+
+        return matched_person_name, matched_person_id, avg_similarity
+    
+    except ValueError as e: # Spoofing detected
+        # raise HTTPException(status_code=400, detail="Spoof detected in the given image.")
+        return None, None, 0.0
+
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-    # Anti-spoofing check - reject if spoofing detected
-    if is_real is False:
-        return AttendanceVerifyResponse(
-            match_found=False,
-            is_real=False,
-            message="Spoofing detected. Please use your real face.",
-        )
-    
-    # Query all persons with face embeddings
-    stmt = select(Person).where(
-        and_(
-            Person.face_embedding.isnot(None),
-            Person.status == "active",
-        )
-    )
-    result = await session.execute(stmt)
-    persons = result.scalars().all()
-    
-    if not persons:
-        return AttendanceVerifyResponse(
-            match_found=False,
-            is_real=is_real,
-            message="No enrolled faces found",
-        )
-    
-    # Find best match using face recognition service
-    candidate_embeddings = [np.array(p.face_embedding, dtype=np.float32) for p in persons]
-    best_idx, best_score = face_service.find_best_match(embedding, candidate_embeddings)
-    
-    if best_idx is not None:
-        matched_person = persons[best_idx]
-        return AttendanceVerifyResponse(
-            match_found=True,
-            person_id=matched_person.id,
-            full_name=matched_person.full_name,
-            department=matched_person.department,
-            similarity_score=best_score,
-            is_real=is_real,
-            message="Face verified successfully",
-        )
-    
-    return AttendanceVerifyResponse(
-        match_found=False,
-        similarity_score=best_score if best_score > 0 else None,
-        is_real=is_real,
-        message="Face not recognized",
-    )
 
 
-@router.post("/check-in", response_model=AttendanceCheckInResponse)
+@router.post("/check-in", response_model=AttendanceResponse)
 async def check_in(
-    request: AttendanceCheckInRequest,
-    session: AsyncSession = Depends(get_session),
-):    """
-    Record a check-in for a verified person.
+    file: UploadFile = File(..., description="Face image for verification"),
+    site_id: UUID = Form(...),
+    shift_id: UUID = Form(...),
+    session: Session = Depends(get_session),
+):
+    # 1. Recognize person from face
+    name, person_id, similarity = await recognize_person(file, site_id, shift_id, session)
+    if not person_id:
+        raise HTTPException(status_code=401, detail="Face recognition failed")
     
-    Should be called after successful face verification.
-    Creates or updates attendance record for today.
-    """
-    person_id = request.person_id
-    
-    # Verify person exists
-    stmt = select(Person).where(Person.id == person_id)
-    result = await session.execute(stmt)
-    person = result.scalar_one_or_none()
-    
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    
-    today = date.today()
+    # 2. Get/Create today's attendance
+    attendance = get_today_attendance(session, person_id)
     now = datetime.utcnow()
     
-    # Check for existing attendance today
-    stmt = select(Attendance).where(
-        and_(
-            Attendance.person_id == person_id,
-            Attendance.attendance_date == today,
-        )
-    )
-    result = await session.execute(stmt)
-    existing = result.scalar_one_or_none()
-    
-    if existing:
-        if existing.check_in:
-            # Already checked in - return existing record
-            return AttendanceCheckInResponse(
-                attendance_id=existing.id,
+    if attendance:
+        if attendance.check_in:
+            # Already checked in
+            return AttendanceResponse(
+                attendance_id=attendance.id,
                 person_id=person_id,
-                full_name=person.full_name,
-                check_in_time=existing.check_in,
-                message="Already checked in today",
+                full_name=name,
+                timestamp=attendance.check_in,
+                similarity=similarity
             )
-        else:
-            # Update existing record
-            existing.check_in = now
-            existing.status = AttendanceStatus.PRESENT
-            existing.updated_at = now
-            session.add(existing)
-            attendance = existing
+
     else:
+        # Find matching assignment
+        today = date.today()
+        assignment = session.exec(
+            select(Assignment).where(
+                Assignment.person_id == person_id,
+                Assignment.site_id == site_id,
+                Assignment.shift_id == shift_id,
+                Assignment.effective_from <= today,
+                (Assignment.effective_to == None) | (Assignment.effective_to >= today)
+            )
+        ).first()
+
+        if not assignment:
+            assignment = Assignment(
+                person_id=person_id,
+                site_id=site_id,
+                shift_id=shift_id,
+                effective_from=today
+            )
+            session.add(assignment)
+            session.flush()
+
         # Create new attendance record
         attendance = Attendance(
             person_id=person_id,
-            location_id=request.location_id,
-            shift_id=request.shift_id,
-            attendance_date=today,
+            date=today,
             check_in=now,
-            status=AttendanceStatus.PRESENT,
+            assignment_id=assignment.id,
         )
         session.add(attendance)
     
-    await session.flush()
+    session.commit()
+    session.refresh(attendance)
     
-    # Get location name if provided
-    location_name = None
-    if request.location_id:
-        loc_result = await session.execute(
-            select(Location).where(Location.id == request.location_id)
-        )
-        location = loc_result.scalar_one_or_none()
-        if location:
-            location_name = location.name
-    
-    return AttendanceCheckInResponse(
+    return AttendanceResponse(
         attendance_id=attendance.id,
         person_id=person_id,
-        full_name=person.full_name,
-        check_in_time=now,
-        location=location_name,
-        message="Check-in recorded successfully",
+        full_name=name or "Unknown",
+        timestamp=now,
+        similarity=similarity
     )
 
 
-@router.post("/check-out", response_model=AttendanceCheckOutResponse)
+@router.post("/check-out", response_model=AttendanceResponse)
 async def check_out(
-    request: AttendanceCheckOutRequest,
-    session: AsyncSession = Depends(get_session),
+    file: UploadFile = File(..., description="Face image for verification"),
+    site_id: UUID = Form(...),
+    shift_id: UUID = Form(...),
+    session: Session = Depends(get_session),
 ):
-    """
-    Record a check-out for a person.
+    # 1. Recognize person from face
+    name, person_id, similarity = await recognize_person(file, site_id, shift_id, session)
+    if not person_id:
+        raise HTTPException(status_code=401, detail="Face recognition failed")
     
-    Finds today's attendance record and updates check_out time.
-    """
-    person_id = request.person_id
-    today = date.today()
-    now = datetime.utcnow()
+    # 2. Verify today's check-in
+    attendance = get_today_attendance(session, person_id)
     
-    # Find today's attendance
-    stmt = select(Attendance).where(
-        and_(
-            Attendance.person_id == person_id,
-            Attendance.attendance_date == today,
-        )
-    )
-    result = await session.execute(stmt)
-    attendance = result.scalar_one_or_none()
-    
-    if not attendance:
+    if not attendance or not attendance.check_in:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="No check-in found for today. Please check in first.",
         )
     
-    if not attendance.check_in:
-        raise HTTPException(
-            status_code=400,
-            detail="Must check in before checking out",
+    if attendance.check_out:
+        return AttendanceResponse(
+            attendance_id=attendance.id,
+            person_id=person_id,
+            full_name=name,
+            timestamp=attendance.check_out,
+            similarity=similarity
         )
     
-    # Update check-out
+    now = datetime.utcnow()
     attendance.check_out = now
-    attendance.updated_at = now
+    
     session.add(attendance)
+    session.commit()
+    session.refresh(attendance)
     
-    # Calculate total hours
-    total_hours = None
-    if attendance.check_in:
-        delta = now - attendance.check_in
-        total_hours = round(delta.total_seconds() / 3600, 2)
-    
-    return AttendanceCheckOutResponse(
+    return AttendanceResponse(
         attendance_id=attendance.id,
         person_id=person_id,
-        check_out_time=now,
-        total_hours=total_hours,
-        message="Check-out recorded successfully",
+        full_name=name,
+        timestamp=now,
+        similarity=similarity
     )
 
 
@@ -266,93 +224,175 @@ async def get_attendance_history(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     limit: int = 100,
-    session: AsyncSession = Depends(get_session),
+    current_user: Person = Depends(require_auth),
+    session: Session = Depends(get_session),
 ):
     """
     Get attendance history with optional filters.
+    Supervisor: Can see own attendance + workers under them.
+    Worker: Can see own attendance only.
+    Admin: Can see all attendance.
     """
-    stmt = select(Attendance).options(
-        selectinload(Attendance.person),
-        selectinload(Attendance.location),
-        selectinload(Attendance.shift),
-    )
+    stmt = select(Attendance)
     
-    conditions = []
+    # RBAC filtering: Workers are not system users, so current_user is either Supervisor or Admin
+    if current_user.role == Role.SUPERVISOR:
+        if person_id and person_id != current_user.id:
+            # Verify person is under supervisor
+            person = session.get(Person, person_id)
+            if not person or person.supervisor_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Supervisors can only view attendance for themselves or workers under them"
+                )
+        else:
+            # Filter to own + workers
+            stmt = stmt.join(Person, Attendance.person_id == Person.id).where(
+                or_(
+                    Attendance.person_id == current_user.id,
+                    Person.supervisor_id == current_user.id
+                )
+            )
+    
+    # Manual filters
     if person_id:
-        conditions.append(Attendance.person_id == person_id)
+        stmt = stmt.where(Attendance.person_id == person_id)
     if start_date:
-        conditions.append(Attendance.attendance_date >= start_date)
+        stmt = stmt.where(Attendance.date >= start_date)
     if end_date:
-        conditions.append(Attendance.attendance_date <= end_date)
+        stmt = stmt.where(Attendance.date <= end_date)
     
-    if conditions:
-        stmt = stmt.where(and_(*conditions))
-    
-    stmt = stmt.order_by(Attendance.attendance_date.desc()).limit(limit)
-    
-    result = await session.execute(stmt)
-    attendances = result.scalars().all()
+    stmt = stmt.order_by(Attendance.date.desc()).limit(limit)
+    attendances = session.exec(stmt).all()
     
     return [
         AttendanceRead(
             id=a.id,
             person_id=a.person_id,
             person_name=a.person.full_name if a.person else "Unknown",
-            attendance_date=a.attendance_date,
+            attendance_date=a.date,
             check_in=a.check_in,
             check_out=a.check_out,
             status=a.status.value if isinstance(a.status, AttendanceStatus) else a.status,
-            location_name=a.location.name if a.location else None,
-            shift_name=a.shift.name if a.shift else None,
-            similarity_score=a.similarity_score,
-            is_real=a.is_real,
+            location_name=a.assignment.site.name if a.assignment and a.assignment.site else None,
+            shift_name=a.assignment.shift.name if a.assignment and a.assignment.shift else None,
         )
         for a in attendances
     ]
 
 
-class ReconcileRequest(BaseModel):
-    target_date: Optional[date] = None
-
-
-class ReconcileResponse(BaseModel):
-    target_date: date
-    absent_marked: int
-    overtime_pending_marked: int
-    overtime_requests_created: int
-    message: str
-
-
-@router.post("/reconcile", response_model=ReconcileResponse)
-async def reconcile_attendance_endpoint(
-    request: ReconcileRequest = None,
-    session: AsyncSession = Depends(get_session),
+@router.post("/overtime", response_model=OvertimeRequestRead)
+async def submit_overtime_request(
+    request: OvertimeRequestCreate,
+    current_user: Person = Depends(require_auth),
+    session: Session = Depends(get_session),
 ):
     """
-    Reconcile attendance for a specific date (or today).
-    
-    This endpoint:
-    1. Marks absent for employees who didn't check in
-    2. Creates overtime requests for employees who checked in but not out
-    
-    Should be called at the end of each work day or before payroll processing.
+    Submit an overtime request.
+    Supervisor: For themselves or workers under them.
+    Admin: For anyone.
     """
-    target = request.target_date if request and request.target_date else date.today()
+    # RBAC Check: Supervisors can submit for self or their workers. Admins for anyone.
+    if current_user.role == Role.SUPERVISOR:
+        if request.person_id != current_user.id:
+            person = session.get(Person, request.person_id)
+            if not person or person.supervisor_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Supervisors can only submit OT for themselves or their workers")
+    # Workers are not system users, so they won't be 'current_user' here.
     
-    try:
-        stats = await reconcile_attendance(target, session)
-        await session.commit()
-        
-        return ReconcileResponse(
-            target_date=target,
-            absent_marked=stats["absent_marked"],
-            overtime_pending_marked=stats["overtime_pending_marked"],
-            overtime_requests_created=stats["overtime_requests_created"],
-            message=f"Reconciliation complete for {target}",
+    # Verify attendance exists if provided, or find it by date
+    attendance = None
+    if request.attendance_id:
+        attendance = session.get(Attendance, request.attendance_id)
+        if not attendance:
+            raise HTTPException(status_code=404, detail="Attendance record not found")
+    else:
+        # Try to find attendance by date
+        stmt = select(Attendance).where(
+            Attendance.person_id == request.person_id,
+            Attendance.date == request.overtime_date
         )
-    except Exception as e:
-        await session.rollback()
-        raise HTTPException(status_code=500, detail=f"Reconciliation failed: {str(e)}")
+        attendance = session.exec(stmt).first()
+        if not attendance:
+            raise HTTPException(
+                status_code=404, 
+                detail="No attendance record found for this date. Cannot request overtime without an attendance record."
+            )
+
+    ot_request = OvertimeRequest(
+        person_id=request.person_id,
+        attendance_id=attendance.id,
+        hours=request.hours,
+        notes=request.notes,
+        status=AttendanceStatus.OVERTIME_PENDING
+    )
+    
+    session.add(ot_request)
+    session.commit()
+    session.refresh(ot_request)
+    
+    # Note: Returning ot_request assumes it has the fields required by OvertimeRequestRead.
+    # We may need to manually construct the Read object if database fields differ significantly.
+    return OvertimeRequestRead(
+        id=ot_request.attendance_id,
+        person_id=ot_request.person_id,
+        person_name=session.get(Person, ot_request.person_id).full_name,
+        attendance_id=ot_request.attendance_id,
+        overtime_date=request.overtime_date,
+        hours=ot_request.hours,
+        status=ot_request.status,
+        notes=ot_request.notes,
+        created_at=datetime.utcnow()
+    )
 
 
-
+@router.patch("/overtime/{attendance_id}", response_model=OvertimeRequestRead)
+async def manage_overtime_request(
+    attendance_id: UUID,
+    update: OvertimeRequestUpdate,
+    current_user: Person = Depends(require_auth),
+    session: Session = Depends(get_session),
+):
+    """
+    Approve or deny an overtime request.
+    Admin only.
+    """
+    if current_user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can approve/deny overtime")
+    
+    ot_request = session.get(OvertimeRequest, attendance_id)
+    if not ot_request:
+        raise HTTPException(status_code=404, detail="Overtime request not found")
+    
+    attendance = session.get(Attendance, attendance_id)
+    
+    if update.status == "approved":
+        ot_request.status = AttendanceStatus.OVERTIME_APPROVED
+        if attendance:
+            attendance.status = AttendanceStatus.OVERTIME_APPROVED
+    else:
+        ot_request.status = AttendanceStatus.OVERTIME_REJECTED
+        if attendance:
+            attendance.status = AttendanceStatus.OVERTIME_REJECTED
+            
+    if update.rejection_reason:
+        ot_request.notes = f"{ot_request.notes or ''} [Reason: {update.rejection_reason}]"
+    
+    session.add(ot_request)
+    if attendance:
+        session.add(attendance)
+        
+    session.commit()
+    session.refresh(ot_request)
+    
+    return OvertimeRequestRead(
+        id=attendance_id,
+        person_id=ot_request.person_id,
+        person_name=session.get(Person, ot_request.person_id).full_name,
+        attendance_id=ot_request.attendance_id,
+        overtime_date=attendance.date if attendance else date.today(),
+        hours=ot_request.hours,
+        status=ot_request.status,
+        notes=ot_request.notes,
+        created_at=datetime.utcnow() # Simplified for read schema
+    )

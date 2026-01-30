@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from server.config import config
-# from server.app.api.v1 import router as api_v1_router
+from server.app.api.v1 import router as api_v1_router
 from server.db.session import init_db
 from server.app.middleware.error_handler import (
     global_exception_handler,
@@ -66,7 +66,7 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, database_exception_handler)
 
 # Include API router
-# app.include_router(api_v1_router)
+app.include_router(api_v1_router)
 
 
 @app.get("/health", tags=["Health"])

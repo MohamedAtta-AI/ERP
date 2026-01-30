@@ -9,14 +9,7 @@ import RegistrationPage from "./components/Registration/RegistrationPage";
 import AdminPage from "./components/Admin/AdminPage";
 import LocationsPage from "./components/Admin/LocationsPage";
 import ShiftsPage from "./components/Admin/ShiftsPage";
-import SkillsPage from "./components/Admin/SkillsPage";
 import PersonsPage from "./components/Admin/PersonsPage";
-import PayrollDashboard from "./components/Admin/PayrollDashboard";
-import SalaryAdvancesPage from "./components/Admin/SalaryAdvancesPage";
-import LoansPage from "./components/Admin/LoansPage";
-import ReportsPage from "./components/Admin/ReportsPage";
-import WorkersPage from "./components/Supervisor/WorkersPage";
-import OvertimeManagementPage from "./components/Supervisor/OvertimeManagementPage";
 import LoadingSpinner from "./components/Common/LoadingSpinner";
 import { faceDetectionService } from "./services/faceDetectionService";
 
@@ -24,7 +17,6 @@ import { faceDetectionService } from "./services/faceDetectionService";
 const RoleBasedRedirect = () => {
   const { user, loading } = useAuth();
   
-  // Wait for auth state to be restored from localStorage
   if (loading) {
     return (
       <div style={{ 
@@ -42,12 +34,10 @@ const RoleBasedRedirect = () => {
     return <Navigate to="/login" replace />;
   }
   
-  // Both admin and supervisor go to the same dashboard
   return <Navigate to="/dashboard" replace />;
 };
 
 function App() {
-  // Preload face detection models on app startup
   useEffect(() => {
     faceDetectionService.ensureModelsLoaded().catch((err) => {
       console.warn("Face detection preload failed, will retry on use:", err);
@@ -61,7 +51,7 @@ function App() {
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
           
-          {/* Protected routes - admin and supervisor only */}
+          {/* Protected routes */}
           <Route
             path="/dashboard"
             element={
@@ -112,67 +102,10 @@ function App() {
             }
           />
           <Route
-            path="/admin/skills"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <SkillsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/admin/persons"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <PersonsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/payroll"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <PayrollDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/advances"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <SalaryAdvancesPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/loans"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <LoansPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reports"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <ReportsPage />
-              </ProtectedRoute>
-            }
-          />
-          {/* Supervisor pages */}
-          <Route
-            path="/supervisor/workers"
-            element={
-              <ProtectedRoute allowedRoles={['supervisor', 'admin']}>
-                <WorkersPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/supervisor/overtime"
-            element={
-              <ProtectedRoute allowedRoles={['supervisor', 'admin']}>
-                <OvertimeManagementPage />
               </ProtectedRoute>
             }
           />

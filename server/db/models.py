@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, date, time
 from typing import Optional
 from uuid import UUID, uuid4
-from sqlmodel import SQLModel, Field, String, Date, DateTime, Column, Relationship, func
+from sqlmodel import SQLModel, Field, String, Date, DateTime, Column, Relationship, func, ForeignKey
 from pgvector.sqlalchemy import Vector
 from .enums import *
 from ..config import config
@@ -45,6 +45,25 @@ class Person(SQLModel, table=True):
     overtime_eligible: bool = Field(default=True)
     incentive_eligible: bool = Field(default=True)
 
+    supervisor_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(
+            String(6),
+            ForeignKey("person.id", ondelete="SET NULL"),
+            index=True,
+            nullable=True,
+        ),
+    )
+    supervisor: Optional["Person"] = Relationship(
+        back_populates="subordinates",
+        sa_relationship_kwargs={"remote_side": "Person.id"},
+    )
+    subordinates: List["Person"] = Relationship(
+        back_populates="supervisor",
+        sa_relationship_kwargs={
+            "passive_deletes": True,
+        },
+    )
     face_embeddings: list["FaceEmbedding"] | None = Relationship(back_populates="person", cascade_delete=True)
     documents: list["Document"] | None = Relationship(back_populates="person", cascade_delete=True)
     payment_info: "PaymentInfo" | None = Relationship(back_populates="person", cascade_delete=True)
@@ -52,6 +71,7 @@ class Person(SQLModel, table=True):
     salary_components: list["SalaryComponent"] | None = Relationship(back_populates="persons", link_model=PersonSalaryComponentLink)
     attendances: list["Attendance"] | None = Relationship(back_populates="person", cascade_delete=True)
     assignments: list["Assignment"] | None = Relationship(back_populates="person", cascade_delete=True)
+    overtime_requests: list["OvertimeRequest"] | None = Relationship(back_populates="person", cascade_delete=True)
 
 
 class FaceEmbedding(SQLModel, table=True):
@@ -66,6 +86,7 @@ class Document(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     type: DocType
     url: str
+    uploaded_at: datetime = Field(sa_column=Column(DateTime(timezone=True), server_default=func.now()))
 
     person_id: str = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person = Relationship(back_populates="documents")
@@ -88,10 +109,12 @@ class PaymentInfo(SQLModel, table=True):
 class Skill(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
+    rate: float = Field(default=0, ge=0)
+    effective_from: date = Field(default_factory=date.today)
+    effective_to: date | None = Field(default=None)
     
     persons: list["Person"] = Relationship(back_populates="skills", link_model=PersonSkillLink)
     skill_values: list["SkillValue"] = Relationship(back_populates="skill")
-
 
 
 class SalaryComponent(SQLModel, table=True):
@@ -107,8 +130,6 @@ class SalaryComponent(SQLModel, table=True):
     category: ComponentCategory
 
     persons: list["Person"] = Relationship(back_populates="salary_components", link_model=PersonSalaryComponentLink)
-    skill_value: "SkillValue" = Relationship(back_populates="salary_component", cascade_delete=True)
-
 
 
 class Site(SQLModel, table=True):
@@ -122,7 +143,6 @@ class Site(SQLModel, table=True):
     skill_values: list["SkillValue"] = Relationship(back_populates="site")
 
 
-
 class SkillValue(SQLModel, table=True):
     amount: float = Field(default=0, ge=0)
 
@@ -130,8 +150,6 @@ class SkillValue(SQLModel, table=True):
     site: Site = Relationship(back_populates="skill_values")
     skill_id: UUID = Field(primary_key=True, foreign_key="skill.id", ondelete="CASCADE")
     skill: Skill = Relationship(back_populates="skill_values")
-    salary_component_id: UUID = Field(primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE")
-    salary_component: SalaryComponent = Relationship(back_populates="skill_values")
 
 
 class Shift(SQLModel, table=True):
@@ -143,13 +161,11 @@ class Shift(SQLModel, table=True):
     assignments: list["Assignment"] = Relationship(back_populates="shift")
 
 
-
 class Attendance(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     date: date
     check_in: datetime
     check_out: datetime | None = Field(default=None)
-    rate_snapshot: float = Field(default=0, ge=0)
     image_url: str | None = Field(default=None)
     
     person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
@@ -165,6 +181,8 @@ class OvertimeRequest(SQLModel, table=True):
     status: AttendanceStatus = Field(default=AttendanceStatus.OVERTIME_PENDING)
     notes: str | None = Field(default=None)
 
+    person_id: str | None = Field(foreign_key="person.id", ondelete="CASCADE")
+    person: Person = Relationship(back_populates="overtime_requests")
     attendance_id: UUID | None = Field(primary_key=True, foreign_key="attendance.id", ondelete="CASCADE")
     attendance: Attendance = Relationship(back_populates="overtime_request")
 
@@ -184,4 +202,3 @@ class Assignment(SQLModel, table=True):
     shift: Shift = Relationship(back_populates="assignments")
 
     attendances: list["Attendance"] = Relationship(back_populates="assignment")
-

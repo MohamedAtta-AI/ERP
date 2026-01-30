@@ -104,9 +104,7 @@ const MainDashboard = () => {
               Welcome back, {user?.full_name?.split(' ')[0] || 'User'}
             </h1>
             <p className={styles.welcomeSubtitle}>
-              {isAdmin 
-                ? "Manage attendance, payroll, and workers from here."
-                : "Take attendance and manage your team from here."}
+              Manage attendance and worker registration from here.
             </p>
           </div>
 
@@ -153,21 +151,6 @@ const MainDashboard = () => {
                 <p className={styles.kpiValue}>{stats.pendingOvertime}</p>
               </div>
             </div>
-
-            {isAdmin && (
-              <div className={styles.kpiCard}>
-                <div className={styles.kpiIcon} style={{ backgroundColor: "#E0E7FF" }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2">
-                    <line x1="12" y1="1" x2="12" y2="23"></line>
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-                  </svg>
-                </div>
-                <div className={styles.kpiContent}>
-                  <h3 className={styles.kpiTitle}>Payroll Runs</h3>
-                  <p className={styles.kpiValue}>0</p>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Modules Section */}
@@ -187,7 +170,6 @@ const MainDashboard = () => {
                 <span className={styles.moduleDescription}>Face recognition check-in</span>
               </Link>
 
-              {/* Register Workers - Admin only */}
               {isAdmin && (
                 <Link to="/register" className={styles.moduleCard}>
                   <div className={styles.moduleIcon} style={{ color: "#3B82F6" }}>
@@ -203,32 +185,17 @@ const MainDashboard = () => {
                 </Link>
               )}
 
-              {/* Overtime Management */}
-              <div className={styles.moduleCard} style={{ cursor: 'not-allowed', opacity: 0.7 }}>
-                <div className={styles.moduleIcon} style={{ color: "#F59E0B" }}>
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <polyline points="12 6 12 12 16 14"></polyline>
-                  </svg>
-                </div>
-                <span className={styles.moduleName}>Overtime</span>
-                <span className={styles.moduleDescription}>Review pending requests</span>
-              </div>
-
-              {/* Admin-only modules */}
               {isAdmin && (
-                <>
-                  <Link to="/admin" className={styles.moduleCard}>
-                    <div className={styles.moduleIcon} style={{ color: "#8B5CF6" }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="3"></circle>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                      </svg>
-                    </div>
-                    <span className={styles.moduleName}>Admin Panel</span>
-                    <span className={styles.moduleDescription}>Manage system settings</span>
-                  </Link>
-                </>
+                <Link to="/admin" className={styles.moduleCard}>
+                  <div className={styles.moduleIcon} style={{ color: "#8B5CF6" }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3"></circle>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                  </div>
+                  <span className={styles.moduleName}>Admin Panel</span>
+                  <span className={styles.moduleDescription}>Manage system settings</span>
+                </Link>
               )}
             </div>
           </div>

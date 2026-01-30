@@ -17,7 +17,6 @@ const TABS = [
   { id: "shifts", label: "Shifts", icon: "⏰" },
   { id: "employees", label: "Employees", icon: "👥" },
   { id: "overtime", label: "Overtime", icon: "⏱️" },
-  { id: "payroll", label: "Payroll", icon: "💰" },
 ];
 
 const AdminPage = () => {
