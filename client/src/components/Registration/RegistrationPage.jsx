@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import MultiStageRegistrationForm from "./MultiStageRegistrationForm";
+import PersonRegistrationWizard from "./PersonRegistrationWizard";
 import FaceCapture from "../FaceCapture/FaceCapture";
 import { enrollFace } from "../../services/api";
 import ErrorMessage from "../Common/ErrorMessage";
@@ -104,7 +104,7 @@ const RegistrationPage = () => {
 
       {/* Form Mode */}
       {mode === "form" && (
-        <MultiStageRegistrationForm onSuccess={handleRegistrationSuccess} />
+        <PersonRegistrationWizard onSuccess={handleRegistrationSuccess} />
       )}
 
       {/* Enrollment Mode */}

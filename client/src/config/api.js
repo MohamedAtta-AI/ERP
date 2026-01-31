@@ -4,11 +4,15 @@ export const API_BASE_URL =
 
 // API Endpoints
 export const API_ENDPOINTS = {
+  // Auth
+  LOGIN: "/api/v1/auth/login",
+  
   // Employee/Person endpoints
   REGISTER_EMPLOYEE: "/api/v1/employees/register",
   ENROLL_FACE: (employeeId) => `/api/v1/employees/${employeeId}/enroll-face`,
   GET_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
   LIST_EMPLOYEES: "/api/v1/employees",
+  PAYMENT_INFO: (employeeId) => `/api/v1/employees/${employeeId}/payment-info`,
   
   // Attendance endpoints
   VERIFY_ATTENDANCE: "/api/v1/attendance/verify",
@@ -37,10 +41,8 @@ export const API_ENDPOINTS = {
   EMPLOYEE_COMPONENTS: (employeeId) => `/api/v1/payroll/employee-components/${employeeId}`,
   
   // Overtime endpoints
-  OVERTIME_REQUESTS: "/api/v1/overtime",
-  OVERTIME_REQUEST: (id) => `/api/v1/overtime/${id}`,
-  APPROVE_OVERTIME: (id) => `/api/v1/overtime/${id}/approve`,
-  REJECT_OVERTIME: (id) => `/api/v1/overtime/${id}/reject`,
+  OVERTIME_REQUESTS: "/api/v1/attendance/overtime",
+  OVERTIME_REQUEST: (id) => `/api/v1/attendance/overtime/${id}`,
   
   // Health
   HEALTH: "/api/v1/health",

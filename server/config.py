@@ -17,7 +17,7 @@ class Config(BaseSettings):
 
     # Database Configuration
     DB_URL: str = (
-        "postgresql+asyncpg://erp_user:erp_password@localhost:5432/erp_db"
+        "postgresql://erp_user:erp_password@localhost:5432/erp_db"
     )
 
     # Server Configuration

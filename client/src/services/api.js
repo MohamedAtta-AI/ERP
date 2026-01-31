@@ -65,6 +65,28 @@ class ApiClient {
 
 const apiClient = new ApiClient(API_BASE_URL);
 
+/**
+ * Login user
+ */
+export const login = async (credentials) => {
+  const formData = new FormData();
+  formData.append('username', credentials.username);
+  formData.append('password', credentials.password);
+  
+  // Login endpoint expects form data for OAuth2
+  const url = `${API_BASE_URL}${API_ENDPOINTS.LOGIN}`;
+  const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+  });
+  
+  const data = await response.json();
+  if (!response.ok) {
+      throw new Error(data.detail || "Login failed");
+  }
+  return data;
+};
+
 // ============================================================
 // Employee/Person API
 // ============================================================
@@ -104,6 +126,16 @@ export const listEmployees = async (params = {}) => {
   const queryString = queryParams.toString();
   const endpoint = queryString ? `${API_ENDPOINTS.LIST_EMPLOYEES}?${queryString}` : API_ENDPOINTS.LIST_EMPLOYEES;
   return apiClient.request(endpoint);
+};
+
+/**
+ * Save payment info for an employee
+ */
+export const savePaymentInfo = async (employeeId, paymentData) => {
+  return apiClient.request(API_ENDPOINTS.PAYMENT_INFO(employeeId), {
+    method: "POST",
+    body: JSON.stringify(paymentData),
+  });
 };
 
 // ============================================================
@@ -401,8 +433,9 @@ export const listOvertimeRequests = async (params = {}) => {
  * Approve overtime request
  */
 export const approveOvertime = async (overtimeId) => {
-  return apiClient.request(API_ENDPOINTS.APPROVE_OVERTIME(overtimeId), {
-    method: "POST",
+  return apiClient.request(API_ENDPOINTS.OVERTIME_REQUEST(overtimeId), {
+    method: "PATCH",
+    body: JSON.stringify({ status: "approved" }),
   });
 };
 
@@ -410,9 +443,9 @@ export const approveOvertime = async (overtimeId) => {
  * Reject overtime request
  */
 export const rejectOvertime = async (overtimeId, reason = "") => {
-  return apiClient.request(API_ENDPOINTS.REJECT_OVERTIME(overtimeId), {
-    method: "POST",
-    body: JSON.stringify({ reason }),
+  return apiClient.request(API_ENDPOINTS.OVERTIME_REQUEST(overtimeId), {
+    method: "PATCH",
+    body: JSON.stringify({ status: "rejected", rejection_reason: reason }),
   });
 };
 

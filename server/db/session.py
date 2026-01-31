@@ -1,5 +1,5 @@
 from sqlalchemy import text
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import SQLModel, create_engine, Session
 from . import models # this import initializes the MetaData object
 from ..config import config
 
@@ -10,9 +10,10 @@ engine = create_engine(
 async def init_db():
     with Session(engine) as session:
         session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        session.commit()
     SQLModel.metadata.create_all(engine)
 
-async def get_session():
+def get_session():
     with Session(engine) as session:
         yield session
 

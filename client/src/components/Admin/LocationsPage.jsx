@@ -10,10 +10,13 @@ const LocationsPage = () => {
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
+  
+  // Model-aligned form data
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
-    active: true,
+    street_address: '',
+    region: '',
+    city: '',
   });
 
   useEffect(() => {
@@ -44,18 +47,23 @@ const LocationsPage = () => {
       await loadLocations();
       setShowForm(false);
       setEditingLocation(null);
-      setFormData({ name: '', address: '', active: true });
+      resetForm();
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const resetForm = () => {
+    setFormData({ name: '', street_address: '', region: '', city: '' });
   };
 
   const handleEdit = (location) => {
     setEditingLocation(location);
     setFormData({
       name: location.name,
-      address: location.address || '',
-      active: location.active,
+      street_address: location.street_address || '',
+      region: location.region || '',
+      city: location.city || '',
     });
     setShowForm(true);
   };
@@ -75,8 +83,11 @@ const LocationsPage = () => {
   return (
     <div className={styles.pageContainer}>
       <div className={styles.pageHeader}>
-        <h1>Locations Management</h1>
-        <button onClick={() => { setShowForm(true); setEditingLocation(null); setFormData({ name: '', address: '', active: true }); }} className={styles.addButton}>
+        <h1 className="heading-xl">Locations Management</h1>
+        <button 
+          onClick={() => { setShowForm(true); setEditingLocation(null); resetForm(); }} 
+          className="btn btn-primary"
+        >
           + Add Location
         </button>
       </div>
@@ -84,74 +95,96 @@ const LocationsPage = () => {
       {error && <ErrorMessage message={error} />}
 
       {showForm && (
-        <div className={styles.formModal}>
-          <div className={styles.formCard}>
-            <h2>{editingLocation ? 'Edit Location' : 'New Location'}</h2>
+        <div className="modal-overlay">
+          <div className="glass-panel modal-content">
+            <h2 className="section-title">{editingLocation ? 'Edit Location' : 'New Location'}</h2>
             <form onSubmit={handleSubmit}>
-              <div className={styles.formGroup}>
-                <label>Name *</label>
+              <div className="form-group">
+                <label className="label">Name *</label>
                 <input
                   type="text"
+                  className="input-field"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label>Address</label>
-                <textarea
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows={3}
+              
+              <div className="form-group">
+                <label className="label">Street Address</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={formData.street_address}
+                  onChange={(e) => setFormData({ ...formData, street_address: e.target.value })}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label>
+
+              <div className="form-grid" style={{ marginBottom: 0 }}>
+                <div className="form-group">
+                  <label className="label">City</label>
                   <input
-                    type="checkbox"
-                    checked={formData.active}
-                    onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                    type="text"
+                    className="input-field"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                   />
-                  Active
-                </label>
+                </div>
+                <div className="form-group">
+                  <label className="label">Region</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={formData.region}
+                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                  />
+                </div>
               </div>
-              <div className={styles.formActions}>
-                <button type="submit" className={styles.submitButton}>Save</button>
-                <button type="button" onClick={() => { setShowForm(false); setEditingLocation(null); }} className={styles.cancelButton}>
+              
+              <div className={styles.formActions} style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                <button type="button" onClick={() => { setShowForm(false); setEditingLocation(null); }} className="btn btn-secondary">
                   Cancel
                 </button>
+                <button type="submit" className="btn btn-primary">Save Location</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      <div className={styles.tableContainer}>
-        <table className={styles.dataTable}>
+      <div className="glass-panel" style={{ padding: '2rem', marginTop: '1.5rem' }}>
+        <table className={styles.dataTable} style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>Address</th>
-              <th>Status</th>
-              <th>Actions</th>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)' }}>
+              <th style={{ padding: '1rem' }}>Name</th>
+              <th style={{ padding: '1rem' }}>Address</th>
+              <th style={{ padding: '1rem' }}>City/Region</th>
+              <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {locations.map((location) => (
-              <tr key={location.id}>
-                <td>{location.name}</td>
-                <td>{location.address || '-'}</td>
-                <td>
-                  <span className={location.active ? styles.activeBadge : styles.inactiveBadge}>
-                    {location.active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-                <td>
-                  <button onClick={() => handleEdit(location)} className={styles.editButton}>Edit</button>
-                  <button onClick={() => handleDelete(location.id)} className={styles.deleteButton}>Delete</button>
-                </td>
+            {locations.length === 0 ? (
+              <tr>
+                <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)' }}>No locations found.</td>
               </tr>
-            ))}
+            ) : (
+              locations.map((location) => (
+                <tr key={location.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <td style={{ padding: '1rem', fontWeight: 500 }}>{location.name}</td>
+                  <td style={{ padding: '1rem' }}>{location.street_address || '-'}</td>
+                  <td style={{ padding: '1rem' }}>
+                    {location.city && location.region ? `${location.city}, ${location.region}` : 
+                     location.city || location.region || '-'}
+                  </td>
+                  <td style={{ padding: '1rem', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                      <button onClick={() => handleEdit(location)} className="btn btn-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Edit</button>
+                      <button onClick={() => handleDelete(location.id)} className="btn btn-danger" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -160,10 +193,3 @@ const LocationsPage = () => {
 };
 
 export default LocationsPage;
-
-
-
-
-
-
-
