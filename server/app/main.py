@@ -66,7 +66,7 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, database_exception_handler)
 
 # Include API router
-app.include_router(api_v1_router)
+app.include_router(api_v1_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])

@@ -5,7 +5,6 @@ import {
   listShifts, createShift, deleteShift,
   listEmployees, getAttendanceHistory, reconcileAttendance,
   listOvertimeRequests, approveOvertime, rejectOvertime,
-  listPayrollPeriods, listPayrollRuns,
 } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 import erpLogo from "../../assets/erp_logo.png";
@@ -31,7 +30,6 @@ const AdminPage = () => {
   const [shifts, setShifts] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [overtimeRequests, setOvertimeRequests] = useState([]);
-  const [payrollPeriods, setPayrollPeriods] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [stats, setStats] = useState({
     totalEmployees: 0,
@@ -43,8 +41,8 @@ const AdminPage = () => {
   // Form states
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [showAddShift, setShowAddShift] = useState(false);
-  const [newLocation, setNewLocation] = useState({ name: "", city: "", address: "" });
-  const [newShift, setNewShift] = useState({ name: "", starts_at: "08:00", ends_at: "17:00", is_overnight: false });
+  const [newLocation, setNewLocation] = useState({ name: "", street_address: "", region: "", city: "" });
+  const [newShift, setNewShift] = useState({ name: "", start_time: "08:00", end_time: "17:00" });
 
   // Load data
   const loadData = useCallback(async () => {
@@ -57,14 +55,12 @@ const AdminPage = () => {
         shiftsData,
         employeesData,
         overtimeData,
-        payrollData,
         attendanceData,
       ] = await Promise.all([
         listLocations().catch(() => []),
         listShifts().catch(() => []),
         listEmployees({ status: "active" }).catch(() => []),
         listOvertimeRequests({ status: "pending" }).catch(() => []),
-        listPayrollPeriods().catch(() => []),
         getAttendanceHistory({ start_date: today, end_date: today, limit: 100 }).catch(() => []),
       ]);
 
@@ -72,7 +68,6 @@ const AdminPage = () => {
       setShifts(shiftsData || []);
       setEmployees(employeesData || []);
       setOvertimeRequests(overtimeData || []);
-      setPayrollPeriods(payrollData || []);
       setTodayAttendance(attendanceData || []);
 
       // Calculate stats
@@ -99,8 +94,15 @@ const AdminPage = () => {
     e.preventDefault();
     setError(null);
     try {
-      await createLocation(newLocation);
-      setNewLocation({ name: "", city: "", address: "" });
+      // Ensure time format is correct for API
+      const payload = {
+        name: newLocation.name,
+        street_address: newLocation.street_address || null,
+        region: newLocation.region || null,
+        city: newLocation.city || null,
+      };
+      await createLocation(payload);
+      setNewLocation({ name: "", street_address: "", region: "", city: "" });
       setShowAddLocation(false);
       setSuccessMessage("Location created successfully!");
       loadData();
@@ -114,8 +116,14 @@ const AdminPage = () => {
     e.preventDefault();
     setError(null);
     try {
-      await createShift(newShift);
-      setNewShift({ name: "", starts_at: "08:00", ends_at: "17:00", is_overnight: false });
+      // Ensure time format is HH:MM:SS for API
+      const payload = {
+        name: newShift.name,
+        start_time: newShift.start_time.length === 5 ? `${newShift.start_time}:00` : newShift.start_time,
+        end_time: newShift.end_time.length === 5 ? `${newShift.end_time}:00` : newShift.end_time,
+      };
+      await createShift(payload);
+      setNewShift({ name: "", start_time: "08:00", end_time: "17:00" });
       setShowAddShift(false);
       setSuccessMessage("Shift created successfully!");
       loadData();
@@ -318,6 +326,13 @@ const AdminPage = () => {
                   />
                   <input
                     type="text"
+                    placeholder="Street Address"
+                    value={newLocation.street_address}
+                    onChange={(e) => setNewLocation({ ...newLocation, street_address: e.target.value })}
+                    className={styles.input}
+                  />
+                  <input
+                    type="text"
                     placeholder="City"
                     value={newLocation.city}
                     onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })}
@@ -325,9 +340,9 @@ const AdminPage = () => {
                   />
                   <input
                     type="text"
-                    placeholder="Address"
-                    value={newLocation.address}
-                    onChange={(e) => setNewLocation({ ...newLocation, address: e.target.value })}
+                    placeholder="Region"
+                    value={newLocation.region}
+                    onChange={(e) => setNewLocation({ ...newLocation, region: e.target.value })}
                     className={styles.input}
                   />
                   <button type="submit" className={styles.submitBtn}>Create</button>
@@ -375,9 +390,10 @@ const AdminPage = () => {
                 <form onSubmit={handleCreateShift} className={styles.addForm}>
                   <input
                     type="text"
-                    placeholder="Shift Name"
+                    placeholder="Shift Name *"
                     value={newShift.name}
                     onChange={(e) => setNewShift({ ...newShift, name: e.target.value })}
+                    required
                     className={styles.input}
                   />
                   <div className={styles.timeInputs}>
@@ -385,8 +401,8 @@ const AdminPage = () => {
                       Start Time:
                       <input
                         type="time"
-                        value={newShift.starts_at}
-                        onChange={(e) => setNewShift({ ...newShift, starts_at: e.target.value })}
+                        value={newShift.start_time}
+                        onChange={(e) => setNewShift({ ...newShift, start_time: e.target.value })}
                         required
                         className={styles.input}
                       />
@@ -395,21 +411,13 @@ const AdminPage = () => {
                       End Time:
                       <input
                         type="time"
-                        value={newShift.ends_at}
-                        onChange={(e) => setNewShift({ ...newShift, ends_at: e.target.value })}
+                        value={newShift.end_time}
+                        onChange={(e) => setNewShift({ ...newShift, end_time: e.target.value })}
                         required
                         className={styles.input}
                       />
                     </label>
                   </div>
-                  <label className={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={newShift.is_overnight}
-                      onChange={(e) => setNewShift({ ...newShift, is_overnight: e.target.checked })}
-                    />
-                    Overnight Shift
-                  </label>
                   <button type="submit" className={styles.submitBtn}>Create</button>
                 </form>
               )}
@@ -423,8 +431,7 @@ const AdminPage = () => {
                       <div className={styles.itemInfo}>
                         <span className={styles.itemName}>{shift.name || "Unnamed Shift"}</span>
                         <span className={styles.itemMeta}>
-                          {shift.starts_at} → {shift.ends_at}
-                          {shift.is_overnight && " (Overnight)"}
+                          {shift.start_time} → {shift.end_time}
                         </span>
                       </div>
                       <button
@@ -509,38 +516,6 @@ const AdminPage = () => {
                         >
                           ✗ Reject
                         </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Payroll Tab */}
-          {activeTab === "payroll" && !isLoading && (
-            <div className={styles.section}>
-              <div className={styles.sectionHeader}>
-                <h2 className={styles.sectionTitle}>Payroll Periods</h2>
-              </div>
-
-              <div className={styles.itemList}>
-                {payrollPeriods.length === 0 ? (
-                  <p className={styles.emptyText}>No payroll periods configured</p>
-                ) : (
-                  payrollPeriods.map((period) => (
-                    <div key={period.id} className={styles.itemCard}>
-                      <div className={styles.itemInfo}>
-                        <span className={styles.itemName}>
-                          {period.start_date} to {period.end_date}
-                        </span>
-                        <span className={`${styles.badge} ${
-                          period.status === "open" ? styles.badgeSuccess :
-                          period.status === "closed" ? styles.badgeWarning :
-                          styles.badgeLocked
-                        }`}>
-                          {period.status}
-                        </span>
                       </div>
                     </div>
                   ))

@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class Role(str, Enum):
     ADMIN = "admin"
     SUPERVISOR = "supervisor"
@@ -42,6 +43,14 @@ class PaymentMethod(str, Enum):
     INSTAPAY = "instapay"
 
 
+class WalletProvider(str, Enum):
+    VODAFONE_CASH = "Vodafone Cash"
+    ETSALAT_CASH = "Etsalat Cash"
+    ORANGE_CASH = "Orange Cash"
+    WE_PAY = "WE Pay"
+    INSTAPAY = "Instapay"
+
+
 class CalculationMethod(str, Enum):
     FIXED = "fixed"
     PER_DAY = "per_day"
@@ -62,12 +71,12 @@ class ComponentType(str, Enum):
     OVERTIME = "overtime"
     ALLOWANCE = "allowance"
     INCENTIVE = "incentive"
-    
+
     # Deductions
     TAX = "tax"
     INSURANCE = "insurance"
     PENALTY = "penalty"
-    
+
     OTHER = "other"
 
 

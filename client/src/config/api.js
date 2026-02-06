@@ -13,6 +13,7 @@ export const API_ENDPOINTS = {
   GET_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
   LIST_EMPLOYEES: "/api/v1/employees",
   PAYMENT_INFO: (employeeId) => `/api/v1/employees/${employeeId}/payment-info`,
+  UPLOAD_DOCUMENT: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
   
   // Attendance endpoints
   VERIFY_ATTENDANCE: "/api/v1/attendance/verify",
@@ -33,19 +34,9 @@ export const API_ENDPOINTS = {
   ASSIGNMENTS: "/api/v1/assignments",
   ASSIGNMENT: (id) => `/api/v1/assignments/${id}`,
   
-  // Payroll endpoints
-  PAYROLL_PERIODS: "/api/v1/payroll/periods",
-  PAYROLL_RUNS: "/api/v1/payroll/runs",
-  PAYROLL_RUN: (runId) => `/api/v1/payroll/runs/${runId}`,
-  PAYROLL_COMPONENTS: "/api/v1/payroll/components",
-  EMPLOYEE_COMPONENTS: (employeeId) => `/api/v1/payroll/employee-components/${employeeId}`,
-  
   // Overtime endpoints
   OVERTIME_REQUESTS: "/api/v1/attendance/overtime",
   OVERTIME_REQUEST: (id) => `/api/v1/attendance/overtime/${id}`,
-  
-  // Health
-  HEALTH: "/api/v1/health",
 };
 
 // Quality Check Thresholds

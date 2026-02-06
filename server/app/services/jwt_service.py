@@ -82,10 +82,3 @@ def decode_token(token: str) -> Dict:
     Returns payload dictionary.
     """
     return jwt.decode(token, options={"verify_signature": False})
-
-
-
-
-
-
-

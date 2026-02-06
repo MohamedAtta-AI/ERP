@@ -10,7 +10,7 @@ import styles from "./RegistrationPage.module.css";
  * Registration Page
  * 
  * Full registration flow with multi-stage form and face enrollment.
- * Accessible from dashboard by admin only.
+ * Accessible to admins and supervisors. Supervisors can only register workers.
  */
 const RegistrationPage = () => {
   const [mode, setMode] = useState("form"); // form, enroll, success

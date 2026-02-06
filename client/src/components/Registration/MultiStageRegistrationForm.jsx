@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { registerEmployee, listLocations, listShifts, createAssignment, listSalaryComponents, setEmployeeComponent } from "../../services/api";
+import { registerEmployee, listLocations, listShifts, createAssignment } from "../../services/api";
 import Button from "../Common/Button";
 import ErrorMessage from "../Common/ErrorMessage";
 import styles from "./MultiStageRegistrationForm.module.css";
@@ -66,14 +66,13 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
   useEffect(() => {
     const loadReferenceData = async () => {
       try {
-        const [locationsData, shiftsData, componentsData] = await Promise.all([
+        const [locationsData, shiftsData] = await Promise.all([
           listLocations().catch(() => []),
           listShifts().catch(() => []),
-          listSalaryComponents().catch(() => []),
         ]);
         setLocations(locationsData || []);
         setShifts(shiftsData || []);
-        setSalaryComponents(componentsData || []);
+        setSalaryComponents([]); // Salary components API not yet implemented
         setDataLoaded(true);
       } catch (err) {
         console.error("Failed to load reference data:", err);
@@ -207,29 +206,7 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
         }
       }
       
-      // Set salary component overrides if specified
-      if (formData.base_salary) {
-        const baseSalaryComponent = salaryComponents.find(c => c.type === "base_salary");
-        if (baseSalaryComponent) {
-          try {
-            await setEmployeeComponent(id, baseSalaryComponent.id, parseFloat(formData.base_salary));
-            console.log("Base salary override set");
-          } catch (compErr) {
-            console.warn("Failed to set base salary override:", compErr);
-          }
-        }
-      }
-      
-      // Set other component overrides
-      for (const [componentId, value] of Object.entries(formData.salary_components)) {
-        if (value) {
-          try {
-            await setEmployeeComponent(id, componentId, parseFloat(value));
-          } catch (compErr) {
-            console.warn(`Failed to set component ${componentId} override:`, compErr);
-          }
-        }
-      }
+      // Salary component overrides removed - API not yet implemented
       
       setEmployeeId(id);
     } catch (err) {
@@ -599,50 +576,9 @@ const MultiStageRegistrationForm = ({ onSuccess }) => {
                 </span>
               </div>
 
-              {salaryComponents.filter(c => c.type !== "base_salary").length > 0 && (
-                <div className={styles.componentsSection}>
-                  <h4 className={styles.componentsSectionTitle}>Salary Components</h4>
-                  <p className={styles.helpText}>
-                    Override default values for this employee (leave blank for default)
-                  </p>
-                  {salaryComponents
-                    .filter(c => c.type !== "base_salary" && c.active)
-                    .map((component) => (
-                      <div key={component.id} className={styles.componentRow}>
-                        <div className={styles.componentInfo}>
-                          <span className={styles.componentName}>{component.name}</span>
-                          <span className={`${styles.componentBadge} ${
-                            component.kind === "earning" ? styles.badgeEarning : styles.badgeDeduction
-                          }`}>
-                            {component.kind}
-                          </span>
-                        </div>
-                        <div className={styles.componentInput}>
-                          <input
-                            type="number"
-                            value={formData.salary_components[component.id] || ""}
-                            onChange={(e) => {
-                              setFormData(prev => ({
-                                ...prev,
-                                salary_components: {
-                                  ...prev.salary_components,
-                                  [component.id]: e.target.value,
-                                }
-                              }));
-                            }}
-                            className={styles.smallInput}
-                            placeholder={`Default: ${component.amount}`}
-                            min="0"
-                            step="0.01"
-                          />
-                          <span className={styles.componentUnit}>
-                            {component.amount_type === "percentage" ? "%" : "$"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
+              <p className={styles.helpText} style={{ color: '#6b7280', fontStyle: 'italic' }}>
+                Payroll functionality is not yet implemented in the backend.
+              </p>
 
               {/* Final Summary */}
               <div className={styles.summaryBox}>

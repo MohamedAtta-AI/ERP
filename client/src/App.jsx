@@ -10,6 +10,7 @@ import AdminPage from "./components/Admin/AdminPage";
 import LocationsPage from "./components/Admin/LocationsPage";
 import ShiftsPage from "./components/Admin/ShiftsPage";
 import PersonsPage from "./components/Admin/PersonsPage";
+import ReportsPage from "./components/Admin/ReportsPage";
 import LoadingSpinner from "./components/Common/LoadingSpinner";
 import { faceDetectionService } from "./services/faceDetectionService";
 
@@ -106,6 +107,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <PersonsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/reports"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <ReportsPage />
               </ProtectedRoute>
             }
           />

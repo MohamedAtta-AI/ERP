@@ -2,7 +2,7 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
-from server.db.enums import Role, PersonStatus, PayCycle, WorkerType, PaymentMethod
+from server.db.enums import Role, PersonStatus, PayCycle, WorkerType, PaymentMethod, WalletProvider
 
 class PaymentInfoBase(BaseModel):
     payment_method: PaymentMethod
@@ -11,7 +11,7 @@ class PaymentInfoBase(BaseModel):
     account_number: Optional[str] = None
     iban: Optional[str] = None
     branch_code: Optional[str] = None
-    wallet_provider: Optional[str] = None
+    wallet_provider: Optional[WalletProvider] = None
     wallet_number: Optional[str] = None
 
 class PaymentInfoCreate(PaymentInfoBase):
@@ -39,6 +39,7 @@ class PersonBase(BaseModel):
     overtime_eligible: bool = True
     incentive_eligible: bool = True
     hire_date: Optional[date] = None
+    termination_date: Optional[date] = None
 
 class PersonCreate(PersonBase):
     password_hash: Optional[str] = None # Optional, backend can generate default

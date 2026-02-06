@@ -34,7 +34,8 @@ RUN uv sync --frozen --no-dev
 COPY server/ ./server/
 
 # Create data directories
-RUN mkdir -p /app/data/uploads
+RUN mkdir -p /app/data/uploads && \
+    mkdir -p /app/server/weights
 
 # Expose port
 EXPOSE 8000

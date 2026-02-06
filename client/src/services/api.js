@@ -1,6 +1,13 @@
 import { API_BASE_URL, API_ENDPOINTS } from "../config/api";
 
 /**
+ * Get access token from localStorage
+ */
+const getAccessToken = () => {
+  return localStorage.getItem('access_token');
+};
+
+/**
  * API Client utility functions
  */
 class ApiClient {
@@ -10,19 +17,39 @@ class ApiClient {
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const token = getAccessToken();
+    
     const config = {
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(token && { "Authorization": `Bearer ${token}` }),
         ...options.headers,
       },
     };
 
     try {
       const response = await fetch(url, config);
-      const data = await response.json();
+      
+      // Handle non-JSON responses (e.g., 401, 403)
+      let data;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        data = { detail: text || "An error occurred" };
+      }
 
       if (!response.ok) {
+        // Handle 401 Unauthorized - token might be expired
+        if (response.status === 401) {
+          // Clear auth data and redirect to login
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user');
+          // Don't redirect here - let the component handle it
+        }
         throw new Error(data.detail || data.message || "An error occurred");
       }
 
@@ -34,6 +61,7 @@ class ApiClient {
 
   async uploadFile(endpoint, file, additionalData = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const token = getAccessToken();
     const formData = new FormData();
     formData.append("file", file);
 
@@ -44,15 +72,33 @@ class ApiClient {
       }
     });
 
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     try {
       const response = await fetch(url, {
         method: "POST",
+        headers,
         body: formData,
       });
 
-      const data = await response.json();
+      let data;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        data = { detail: text || "Upload failed" };
+      }
 
       if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user');
+        }
         throw new Error(data.detail || data.message || "Upload failed");
       }
 
@@ -135,6 +181,15 @@ export const savePaymentInfo = async (employeeId, paymentData) => {
   return apiClient.request(API_ENDPOINTS.PAYMENT_INFO(employeeId), {
     method: "POST",
     body: JSON.stringify(paymentData),
+  });
+};
+
+/**
+ * Upload a document for an employee
+ */
+export const uploadDocument = async (employeeId, file, docType) => {
+  return apiClient.uploadFile(API_ENDPOINTS.UPLOAD_DOCUMENT(employeeId), file, {
+    type: docType,
   });
 };
 
@@ -329,87 +384,6 @@ export const reconcileAttendance = async (targetDate = null) => {
   });
 };
 
-// ============================================================
-// Payroll API
-// ============================================================
-
-/**
- * List payroll periods
- */
-export const listPayrollPeriods = async () => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_PERIODS);
-};
-
-/**
- * Create a payroll period
- */
-export const createPayrollPeriod = async (periodData) => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_PERIODS, {
-    method: "POST",
-    body: JSON.stringify(periodData),
-  });
-};
-
-/**
- * List salary components
- */
-export const listSalaryComponents = async () => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_COMPONENTS);
-};
-
-/**
- * Create a salary component
- */
-export const createSalaryComponent = async (componentData) => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_COMPONENTS, {
-    method: "POST",
-    body: JSON.stringify(componentData),
-  });
-};
-
-/**
- * Get employee salary components
- */
-export const getEmployeeComponents = async (employeeId) => {
-  return apiClient.request(API_ENDPOINTS.EMPLOYEE_COMPONENTS(employeeId));
-};
-
-/**
- * Set employee salary component override
- */
-export const setEmployeeComponent = async (employeeId, componentId, valueOverride) => {
-  return apiClient.request(API_ENDPOINTS.EMPLOYEE_COMPONENTS(employeeId), {
-    method: "POST",
-    body: JSON.stringify({ component_id: componentId, value_override: valueOverride }),
-  });
-};
-
-/**
- * Create/run payroll for a period
- */
-export const createPayrollRun = async (periodId, locationId = null) => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_RUNS, {
-    method: "POST",
-    body: JSON.stringify({ period_id: periodId, location_id: locationId }),
-  });
-};
-
-/**
- * Get payroll run details
- */
-export const getPayrollRun = async (runId) => {
-  return apiClient.request(API_ENDPOINTS.PAYROLL_RUN(runId));
-};
-
-/**
- * List payroll runs
- */
-export const listPayrollRuns = async (periodId = null) => {
-  const endpoint = periodId 
-    ? `${API_ENDPOINTS.PAYROLL_RUNS}?period_id=${periodId}` 
-    : API_ENDPOINTS.PAYROLL_RUNS;
-  return apiClient.request(endpoint);
-};
 
 // ============================================================
 // Overtime API
@@ -449,13 +423,6 @@ export const rejectOvertime = async (overtimeId, reason = "") => {
   });
 };
 
-// ============================================================
-// Health API
-// ============================================================
 
-/**
- * Health check
- */
-export const healthCheck = async () => {
-  return apiClient.request(API_ENDPOINTS.HEALTH);
-};
+
+

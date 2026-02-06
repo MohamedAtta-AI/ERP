@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { API_BASE_URL } from '../../config/api';
+import { login as loginAPI } from '../../services/api';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import logoImage from '../../assets/erp_logo.png';
 import styles from './LoginPage.module.css';
 
 const LoginPage = () => {
   const [personId, setPersonId] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { login, isAuthenticated, loading: authLoading } = useAuth();
@@ -40,23 +41,11 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      // Use JWT login endpoint
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          person_id: personId,
-        }),
+      // Use the login API function that sends form data
+      const data = await loginAPI({
+        username: personId,
+        password: password,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Login failed');
-      }
-
-      const data = await response.json();
       
       // Login user with tokens
       login(
@@ -73,7 +62,7 @@ const LoginPage = () => {
       // Redirect to unified dashboard
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your person ID.');
+      setError(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -87,7 +76,6 @@ const LoginPage = () => {
         </div>
         
         <h2 className={styles.title}>Sign In</h2>
-        <p className={styles.subtitle}>Enter your Person ID to continue</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           {error && (
@@ -103,17 +91,31 @@ const LoginPage = () => {
               type="text"
               value={personId}
               onChange={(e) => setPersonId(e.target.value.toUpperCase())}
-              placeholder="Enter your 6-character ID"
-              maxLength={6}
+              placeholder="Enter your Person ID"
               required
               disabled={loading}
+              autoComplete="username"
+            />
+          </div>
+
+          <div className={styles.inputGroup}>
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              required
+              disabled={loading}
+              autoComplete="current-password"
             />
           </div>
 
           <button
             type="submit"
             className={styles.submitButton}
-            disabled={loading || !personId}
+            disabled={loading || !personId || !password}
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -126,15 +128,13 @@ const LoginPage = () => {
               type="button" 
               onClick={async () => { 
                 setPersonId('ADMIN1');
+                setPassword('admin123');
                 setLoading(true);
                 try {
-                  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ person_id: 'ADMIN1' }),
+                  const data = await loginAPI({
+                    username: 'ADMIN1',
+                    password: 'admin123',
                   });
-                  if (!response.ok) throw new Error('Failed to login as admin');
-                  const data = await response.json();
                   login(
                     { id: data.user.id, full_name: data.user.full_name, role: data.user.role, ...data.user },
                     data.access_token,
@@ -155,16 +155,14 @@ const LoginPage = () => {
             <button 
               type="button" 
               onClick={async () => { 
-                setPersonId('SUPER1');
+                setPersonId('SUP001');
+                setPassword('supervisor123');
                 setLoading(true);
                 try {
-                  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ person_id: 'SUPER1' }),
+                  const data = await loginAPI({
+                    username: 'SUP001',
+                    password: 'supervisor123',
                   });
-                  if (!response.ok) throw new Error('Failed to login as supervisor');
-                  const data = await response.json();
                   login(
                     { id: data.user.id, full_name: data.user.full_name, role: data.user.role, ...data.user },
                     data.access_token,
@@ -181,6 +179,34 @@ const LoginPage = () => {
               disabled={loading}
             >
               Supervisor
+            </button>
+            <button 
+              type="button" 
+              onClick={async () => { 
+                setPersonId('WRK001');
+                setPassword('worker123');
+                setLoading(true);
+                try {
+                  const data = await loginAPI({
+                    username: 'WRK001',
+                    password: 'worker123',
+                  });
+                  login(
+                    { id: data.user.id, full_name: data.user.full_name, role: data.user.role, ...data.user },
+                    data.access_token,
+                    data.refresh_token
+                  );
+                  navigate('/dashboard');
+                } catch (err) {
+                  setError(err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className={styles.demoButton}
+              disabled={loading}
+            >
+              Worker
             </button>
           </div>
         </div>

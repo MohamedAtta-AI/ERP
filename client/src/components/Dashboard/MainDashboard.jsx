@@ -18,6 +18,7 @@ const MainDashboard = () => {
   const [loading, setLoading] = useState(true);
 
   const isAdmin = user?.role === 'admin';
+  const canRegister = user?.role === 'admin' || user?.role === 'supervisor';
 
   useEffect(() => {
     fetchDashboardData();
@@ -170,7 +171,7 @@ const MainDashboard = () => {
                 <span className={styles.moduleDescription}>Face recognition check-in</span>
               </Link>
 
-              {isAdmin && (
+              {canRegister && (
                 <Link to="/register" className={styles.moduleCard}>
                   <div className={styles.moduleIcon} style={{ color: "#3B82F6" }}>
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -221,7 +222,7 @@ const MainDashboard = () => {
                 <span>Take Attendance</span>
               </Link>
 
-              {isAdmin && (
+              {canRegister && (
                 <Link
                   to="/register"
                   className={styles.quickActionBtn}

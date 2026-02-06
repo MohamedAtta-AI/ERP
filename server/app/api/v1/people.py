@@ -1,56 +1,83 @@
 from typing import List, Optional
-from uuid import UUID
-import random
-import string
+from uuid import UUID, uuid4
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlmodel import Session, select
 
 from server.db import get_session
-from server.db.models import Person, PaymentInfo, Role, PersonStatus
-from server.app.schemas.person import PersonCreate, PersonRead, PersonUpdate, PaymentInfoCreate, PaymentInfoRead
+from server.db.models import Person, PaymentInfo, Role, PersonStatus, Document, DocType
+from server.app.schemas.person import (
+    PersonCreate,
+    PersonRead,
+    PaymentInfoCreate,
+    PaymentInfoRead,
+)
 from server.app.dependencies import require_auth
 from server.app.services.password_service import hash_password
 from server.app.services.person_id_generator import generate_person_id
 
 router = APIRouter()
 
+
+@router.post("/register", response_model=PersonRead)
+async def register_person_via_register(
+    person_in: PersonCreate,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_auth),
+):
+    """Register endpoint - alias for POST /"""
+    return await register_person(person_in, session, current_user)
+
+
 @router.post("/", response_model=PersonRead)
 async def register_person(
     person_in: PersonCreate,
     session: Session = Depends(get_session),
-    current_user: Person = Depends(require_auth)
+    current_user: Person = Depends(require_auth),
 ):
     # RBAC: supervisors can only register workers
     if current_user.role == Role.SUPERVISOR and person_in.role != Role.WORKER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Supervisors can only register workers."
+            detail="Supervisors can only register workers.",
         )
 
     # Check if user with National ID exists
     if person_in.nationalID:
-        existing = session.exec(select(Person).where(Person.nationalID == person_in.nationalID)).first()
+        existing = session.exec(
+            select(Person).where(Person.nationalID == person_in.nationalID)
+        ).first()
         if existing:
-            raise HTTPException(status_code=400, detail="Person with this National ID already exists")
+            raise HTTPException(
+                status_code=400, detail="Person with this National ID already exists"
+            )
 
     # Generate ID
     new_id = generate_person_id(lambda id: session.get(Person, id) is not None)
-    
+
     # Password: use provided or default
     raw_pwd = person_in.password_hash or "ChangeMe123!"
     pwd_hash = hash_password(raw_pwd)
-    
-    person = Person(
-        id=new_id,
-        **person_in.model_dump(exclude={"password_hash"}),
-        password_hash=pwd_hash
-    )
-    
+
+    # Set hire_date to today if not provided
+    person_data = person_in.model_dump(exclude={"password_hash"})
+    if not person_data.get("hire_date"):
+        from datetime import date
+
+        person_data["hire_date"] = date.today()
+
+    # Only set worker_type for workers
+    if person_data.get("role") != Role.WORKER:
+        person_data["worker_type"] = None
+
+    person = Person(id=new_id, **person_data, password_hash=pwd_hash)
+
     session.add(person)
     session.commit()
     session.refresh(person)
     return person
+
 
 @router.get("/", response_model=List[PersonRead])
 async def list_persons(
@@ -65,9 +92,10 @@ async def list_persons(
         stmt = stmt.where(Person.role == role)
     if status:
         stmt = stmt.where(Person.status == status)
-    
+
     stmt = stmt.limit(limit)
     return session.exec(stmt).all()
+
 
 @router.get("/{person_id}", response_model=PersonRead)
 async def get_person(
@@ -79,6 +107,7 @@ async def get_person(
         raise HTTPException(status_code=404, detail="Person not found")
     return person
 
+
 @router.post("/{person_id}/payment-info", response_model=PaymentInfoRead)
 async def save_payment_info(
     person_id: str,
@@ -88,13 +117,13 @@ async def save_payment_info(
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
-        
+
     # Check if exists, update or create
     # Since model has person_id as PK, we check by that.
     existing = session.get(PaymentInfo, person_id)
     if existing:
         for k, v in info_in.model_dump().items():
-            if k != "person_id": # PK shouldn't change
+            if k != "person_id":  # PK shouldn't change
                 setattr(existing, k, v)
         session.add(existing)
         session.commit()
@@ -104,13 +133,14 @@ async def save_payment_info(
         # Create
         payment_info = PaymentInfo(**info_in.model_dump())
         # ensure person_id matches path
-        payment_info.person_id = person_id 
+        payment_info.person_id = person_id
         session.add(payment_info)
         session.commit()
         session.refresh(payment_info)
         return payment_info
 
-# Face enrollment stub? 
+
+# Face enrollment stub?
 # Already exists in attendance.py? No, attendance.py has check-in.
 # I need enroll endpoint.
 @router.post("/{person_id}/enroll-face")
@@ -125,7 +155,7 @@ async def enroll_face(
     # Check `attendance.py`? It was check-in/out.
     # Where was face enrollment?
     # It was likely in the old implementation. I should add it here.
-    
+
     from server.app.services.face_recognition import FaceRecognitionService
     from server.db.models import FaceEmbedding
     import cv2
@@ -134,21 +164,69 @@ async def enroll_face(
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
-        
+
     service = FaceRecognitionService()
-    
+
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
+
     try:
         embedding_vector = service.generate_embedding(image)
     except Exception as e:
-         raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Save
     face_emb = FaceEmbedding(person_id=person_id, embedding=embedding_vector)
     session.add(face_emb)
     session.commit()
-    
+
     return {"message": "Face enrolled successfully"}
+
+
+@router.post("/{person_id}/documents")
+async def upload_document(
+    person_id: str,
+    file: UploadFile = File(...),
+    type: str = Form(...),
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_auth),
+):
+    """Upload a document for a person"""
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    # Validate document type
+    try:
+        doc_type = DocType(type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid document type. Must be one of: {[e.value for e in DocType]}",
+        )
+
+    # Create uploads directory if it doesn't exist
+    upload_dir = Path("/app/data/uploads/documents")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save file
+    file_extension = Path(file.filename).suffix if file.filename else ".pdf"
+    file_path = upload_dir / f"{person_id}_{doc_type.value}_{uuid4()}{file_extension}"
+
+    contents = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(contents)
+
+    # Create document record
+    document = Document(person_id=person_id, type=doc_type, url=str(file_path))
+    session.add(document)
+    session.commit()
+    session.refresh(document)
+
+    return {
+        "id": str(document.id),
+        "type": doc_type.value,
+        "url": str(file_path),
+        "message": "Document uploaded successfully",
+    }

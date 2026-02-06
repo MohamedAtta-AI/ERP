@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { listSalaryAdvances, createSalaryAdvance, approveSalaryAdvance } from '../../services/api';
+// Salary Advances API not yet implemented in backend
 import { listEmployees } from '../../services/api';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import ErrorMessage from '../Common/ErrorMessage';
@@ -25,12 +25,9 @@ const SalaryAdvancesPage = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [advancesData, employeesData] = await Promise.all([
-        listSalaryAdvances(),
-        listEmployees({ status: 'active' }),
-      ]);
-      setAdvances(advancesData);
+      const employeesData = await listEmployees({ status: 'active' });
       setEmployees(employeesData);
+      setAdvances([]); // Salary Advances API not yet implemented
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -41,28 +38,11 @@ const SalaryAdvancesPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      await createSalaryAdvance({
-        ...formData,
-        amount: parseFloat(formData.amount),
-        deduction_periods: parseInt(formData.deduction_periods),
-      });
-      await loadData();
-      setShowForm(false);
-      setFormData({ person_id: '', amount: '', requested_date: new Date().toISOString().split('T')[0], deduction_periods: 1 });
-    } catch (err) {
-      setError(err.message);
-    }
+    setError("Salary Advances functionality is not yet implemented in the backend.");
   };
 
   const handleApprove = async (id) => {
-    if (!window.confirm('Are you sure you want to approve this advance?')) return;
-    try {
-      await approveSalaryAdvance(id);
-      await loadData();
-    } catch (err) {
-      setError(err.message);
-    }
+    setError("Salary Advances functionality is not yet implemented in the backend.");
   };
 
   if (loading) return <LoadingSpinner />;

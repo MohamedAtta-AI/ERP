@@ -45,7 +45,7 @@ async def login(
         "access_token": access_token, 
         "token_type": "bearer",
         "refresh_token": refresh_token,
-        "user": PersonRead.from_orm(person)
+        "user": PersonRead.model_validate(person)
     }
 
 # Refresh endpoint? Not explicitly requested but good to have

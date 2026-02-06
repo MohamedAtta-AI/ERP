@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { listSkills, createSkill, updateSkill, deleteSkill } from '../../services/api';
+// Skills API not yet implemented in backend
 import LoadingSpinner from '../Common/LoadingSpinner';
 import ErrorMessage from '../Common/ErrorMessage';
 import styles from './AdminPage.module.css';
@@ -22,8 +22,7 @@ const SkillsPage = () => {
   const loadSkills = async () => {
     try {
       setLoading(true);
-      const data = await listSkills();
-      setSkills(data);
+      setSkills([]); // Skills API not yet implemented
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -34,19 +33,7 @@ const SkillsPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      if (editingSkill) {
-        await updateSkill(editingSkill.id, formData);
-      } else {
-        await createSkill(formData);
-      }
-      await loadSkills();
-      setShowForm(false);
-      setEditingSkill(null);
-      setFormData({ name: '', description: '' });
-    } catch (err) {
-      setError(err.message);
-    }
+    setError("Skills functionality is not yet implemented in the backend.");
   };
 
   const handleEdit = (skill) => {
@@ -59,13 +46,7 @@ const SkillsPage = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this skill?')) return;
-    try {
-      await deleteSkill(id);
-      await loadSkills();
-    } catch (err) {
-      setError(err.message);
-    }
+    setError("Skills functionality is not yet implemented in the backend.");
   };
 
   if (loading) return <LoadingSpinner />;

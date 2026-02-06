@@ -39,7 +39,10 @@ class PersonSalaryComponentLink(SQLModel, table=True):
         default=None, primary_key=True, foreign_key="person.id", ondelete="CASCADE"
     )
     salary_component_id: Optional[UUID] = Field(
-        default=None, primary_key=True, foreign_key="salary_component.id", ondelete="CASCADE"
+        default=None,
+        primary_key=True,
+        foreign_key="salary_component.id",
+        ondelete="CASCADE",
     )
 
 
@@ -57,7 +60,9 @@ class SiteSkillLink(SQLModel, table=True):
 class Person(SQLModel, table=True):
     __tablename__ = "person"
 
-    id: str = Field(sa_column=Column(String(6), primary_key=True), min_length=6, max_length=6)
+    id: str = Field(
+        sa_column=Column(String(6), primary_key=True), min_length=6, max_length=6
+    )
     password_hash: str = Field(min_length=5)
     full_name: str = Field(max_length=255, index=True)
     nationalID: Optional[str] = Field(max_length=20, unique=True)
@@ -97,29 +102,47 @@ class Person(SQLModel, table=True):
     )
 
     # One-to-many relationships
-    face_embeddings: list["FaceEmbedding"] = Relationship(back_populates="person", cascade_delete=True)
-    documents: list["Document"] = Relationship(back_populates="person", cascade_delete=True)
-    payment_info: Optional["PaymentInfo"] = Relationship(back_populates="person", cascade_delete=True)
+    face_embeddings: list["FaceEmbedding"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
+    documents: list["Document"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
+    payment_info: Optional["PaymentInfo"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
 
     # Many-to-many relationships
-    skills: list["Skill"] = Relationship(back_populates="persons", link_model=PersonSkillLink)
+    skills: list["Skill"] = Relationship(
+        back_populates="persons", link_model=PersonSkillLink
+    )
     salary_components: list["SalaryComponent"] = Relationship(
         back_populates="persons",
         link_model=PersonSalaryComponentLink,
     )
 
     # Other one-to-many relationships
-    attendances: list["Attendance"] = Relationship(back_populates="person", cascade_delete=True)
-    assignments: list["Assignment"] = Relationship(back_populates="person", cascade_delete=True)
-    overtime_requests: list["OvertimeRequest"] = Relationship(back_populates="person", cascade_delete=True)
+    attendances: list["Attendance"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
+    assignments: list["Assignment"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
+    overtime_requests: list["OvertimeRequest"] = Relationship(
+        back_populates="person", cascade_delete=True
+    )
 
 
 class FaceEmbedding(SQLModel, table=True):
     __tablename__ = "face_embedding"
 
-    embedding: Optional[list["float"]] = Field(default=None, sa_column=Column(Vector(config.EMBEDDING_SIZE)))
+    embedding: Optional[list["float"]] = Field(
+        default=None, sa_column=Column(Vector(config.EMBEDDING_SIZE))
+    )
 
-    person_id: Optional[str] = Field(primary_key=True, foreign_key="person.id", ondelete="CASCADE")
+    person_id: Optional[str] = Field(
+        primary_key=True, foreign_key="person.id", ondelete="CASCADE"
+    )
     person: Optional["Person"] = Relationship(back_populates="face_embeddings")
 
 
@@ -129,7 +152,9 @@ class Document(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     type: DocType
     url: str
-    uploaded_at: datetime = Field(sa_column=Column(DateTime(timezone=True), server_default=func.now()))
+    uploaded_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now())
+    )
 
     person_id: str = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Person = Relationship(back_populates="documents")
@@ -144,10 +169,12 @@ class PaymentInfo(SQLModel, table=True):
     account_number: Optional[str] = Field(default=None)
     iban: Optional[str] = Field(default=None)
     branch_code: Optional[str] = Field(default=None)
-    wallet_provider: Optional[str] = Field(default=None)
+    wallet_provider: Optional[WalletProvider] = Field(default=None)
     wallet_number: Optional[str] = Field(default=None)
 
-    person_id: str = Field(primary_key=True, foreign_key="person.id", ondelete="CASCADE")
+    person_id: str = Field(
+        primary_key=True, foreign_key="person.id", ondelete="CASCADE"
+    )
     person: Person = Relationship(back_populates="payment_info")
 
 
@@ -160,7 +187,9 @@ class Skill(SQLModel, table=True):
     effective_from: date = Field(default_factory=date.today)
     effective_to: Optional[date] = Field(default=None)
 
-    persons: list["Person"] = Relationship(back_populates="skills", link_model=PersonSkillLink)
+    persons: list["Person"] = Relationship(
+        back_populates="skills", link_model=PersonSkillLink
+    )
     skill_values: list["SkillValue"] = Relationship(back_populates="skill")
 
 
@@ -169,7 +198,9 @@ class SalaryComponent(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: Optional[str] = Field(default=None)
-    created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), server_default=func.now()))
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), server_default=func.now())
+    )
     updated_at: Optional[datetime] = Field(
         default=None, sa_column=Column(DateTime(timezone=True), onupdate=func.now())
     )
@@ -180,7 +211,9 @@ class SalaryComponent(SQLModel, table=True):
     type: ComponentType
     category: ComponentCategory
 
-    persons: list["Person"] = Relationship(back_populates="salary_components", link_model=PersonSalaryComponentLink)
+    persons: list["Person"] = Relationship(
+        back_populates="salary_components", link_model=PersonSalaryComponentLink
+    )
 
 
 class Site(SQLModel, table=True):
@@ -231,10 +264,14 @@ class Attendance(SQLModel, table=True):
     person_id: Optional[str] = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Optional["Person"] = Relationship(back_populates="attendances")
 
-    assignment_id: Optional[UUID] = Field(foreign_key="assignment.id", ondelete="CASCADE")
+    assignment_id: Optional[UUID] = Field(
+        foreign_key="assignment.id", ondelete="CASCADE"
+    )
     assignment: Optional["Assignment"] = Relationship(back_populates="attendances")
 
-    overtime_request: Optional["OvertimeRequest"] = Relationship(back_populates="attendance")
+    overtime_request: Optional["OvertimeRequest"] = Relationship(
+        back_populates="attendance"
+    )
 
 
 class OvertimeRequest(SQLModel, table=True):
@@ -248,7 +285,9 @@ class OvertimeRequest(SQLModel, table=True):
     person: Optional["Person"] = Relationship(back_populates="overtime_requests")
 
     # PK must not be Optional
-    attendance_id: UUID = Field(primary_key=True, foreign_key="attendance.id", ondelete="CASCADE")
+    attendance_id: UUID = Field(
+        primary_key=True, foreign_key="attendance.id", ondelete="CASCADE"
+    )
     attendance: Optional["Attendance"] = Relationship(back_populates="overtime_request")
 
 

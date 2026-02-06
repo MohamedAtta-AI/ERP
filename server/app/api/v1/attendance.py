@@ -396,3 +396,28 @@ async def manage_overtime_request(
         notes=ot_request.notes,
         created_at=datetime.utcnow() # Simplified for read schema
     )
+
+
+@router.post("/reconcile")
+async def reconcile_attendance_endpoint(
+    target_date: Optional[date] = None,
+    current_user: Person = Depends(require_auth),
+    session: Session = Depends(get_session),
+):
+    """
+    Reconcile attendance for a target date (defaults to today).
+    Admin only.
+    Marks absent workers, handles missed check-outs, creates overtime requests.
+    """
+    if current_user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can reconcile attendance")
+    
+    reconcile_date = target_date or date.today()
+    result = reconcile_attendance(reconcile_date, session)
+    
+    return {
+        "message": f"Attendance reconciled for {reconcile_date}",
+        "target_date": reconcile_date.isoformat(),
+        "absent_marked": result.get("absent_marked", 0),
+        "overtime_requests_created": result.get("overtime_requests_created", 0),
+    }

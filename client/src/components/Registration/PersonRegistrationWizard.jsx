@@ -6,7 +6,8 @@ import {
   createAssignment, 
   listLocations, 
   listShifts,
-  listEmployees 
+  listEmployees,
+  uploadDocument
 } from '../../services/api';
 import ErrorMessage from '../Common/ErrorMessage';
 
@@ -15,6 +16,8 @@ const STEPS = [
   { id: 2, title: 'Payment Details', icon: '💳' },
   { id: 3, title: 'Assignment', icon: '📍' },
 ];
+
+const STORAGE_KEY = 'erp_registration_form_data';
 
 const PersonRegistrationWizard = ({ onSuccess }) => {
   const { user, hasRole } = useAuth();
@@ -28,7 +31,17 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
   const [shifts, setShifts] = useState([]);
   const [supervisors, setSupervisors] = useState([]);
 
-  const [formData, setFormData] = useState({
+  // Load form data from localStorage on mount
+  const getInitialFormData = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to load saved form data:', e);
+    }
+    return {
     // Personal
     full_name: '',
     email: '',
@@ -66,7 +79,30 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
     rate: '',
     effective_from: new Date().toISOString().split('T')[0],
     effective_to: '',
-  });
+    termination_date: '',
+  };
+  };
+
+  const [formData, setFormData] = useState(getInitialFormData);
+  const [documents, setDocuments] = useState([]); // Array of {type: string, file: File}
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+    } catch (e) {
+      console.warn('Failed to save form data:', e);
+    }
+  }, [formData]);
+
+  // Clear saved form data on successful submission
+  const clearSavedData = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to clear saved form data:', e);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -99,22 +135,63 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    setFormData(prev => {
+      const updates = {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value
+      };
+      
+      // Clear wallet_provider when payment method changes
+      if (name === 'payment_method') {
+        if (value === 'instapay') {
+          updates.wallet_provider = '';
+        } else if (value !== 'wallet') {
+          updates.wallet_provider = '';
+        }
+      }
+      
+      // Clear worker_type when role changes from worker
+      if (name === 'role' && value !== 'worker') {
+        updates.worker_type = '';
+      }
+      
+      return updates;
+    });
   };
 
   const validateStep = (currentStep) => {
     if (currentStep === 1) {
       if (!formData.full_name) return "Full Name is required";
-      // if (!formData.email) return "Email is required"; // Maybe optional for workers?
+      if (!formData.nationalID) return "National ID is required";
+      if (formData.nationalID.length !== 14 || !/^\d{14}$/.test(formData.nationalID)) {
+        return "National ID must be exactly 14 digits";
+      }
+      if (!formData.phone) return "Phone is required";
+      if (formData.phone.length !== 11 || !/^\d{11}$/.test(formData.phone)) {
+        return "Phone must be exactly 11 digits (no country code)";
+      }
       // Check permissions
       if (hasRole('supervisor') && !hasRole('admin') && formData.role !== 'worker') {
         return "Supervisors can only register workers.";
       }
     }
-    // Step 2 & 3 optional?
+    if (currentStep === 2) {
+      // Validate wallet/instapay phone numbers
+      if (formData.payment_method === 'wallet') {
+        if (!formData.wallet_provider) return "Wallet provider is required";
+        if (!formData.wallet_number) return "Wallet phone number is required";
+        if (formData.wallet_number.length !== 11 || !/^\d{11}$/.test(formData.wallet_number)) {
+          return "Wallet phone number must be exactly 11 digits (no country code)";
+        }
+      }
+      if (formData.payment_method === 'instapay') {
+        if (!formData.wallet_number) return "Instapay phone number is required";
+        if (formData.wallet_number.length !== 11 || !/^\d{11}$/.test(formData.wallet_number)) {
+          return "Instapay phone number must be exactly 11 digits (no country code)";
+        }
+      }
+    }
+    // Step 3 optional?
     return null;
   };
 
@@ -156,16 +233,18 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         supervisor_id: formData.supervisor_id || null,
         overtime_eligible: formData.overtime_eligible,
         incentive_eligible: formData.incentive_eligible,
-        hire_date: formData.hire_date,
-        // Password hash? Backend should handle default or we generate one?
-        // Assuming backend generates default password if missing.
-        password_hash: "defaultToChange123", // Placeholder if required
+        hire_date: formData.hire_date || new Date().toISOString().split('T')[0],
+        termination_date: formData.termination_date || null,
+        // password_hash is optional - backend will generate default if not provided
       };
 
       const personRes = await registerEmployee(personPayload);
       const personId = personRes.id || personRes.person_id || personRes.employee_id;
 
       if (!personId) throw new Error("Failed to get Person ID from registration response");
+
+      // Clear saved form data on success
+      clearSavedData();
 
       // 2. Save Payment Info
       if (formData.payment_method) {
@@ -176,7 +255,8 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
           account_number: formData.account_number || null,
           iban: formData.iban || null,
           branch_code: formData.branch_code || null,
-          wallet_provider: formData.wallet_provider || null,
+          // Only set wallet_provider for wallet payment method, not for instapay
+          wallet_provider: formData.payment_method === 'wallet' ? (formData.wallet_provider || null) : null,
           wallet_number: formData.wallet_number || null,
           person_id: personId
         };
@@ -195,6 +275,17 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
           effective_to: formData.effective_to || null,
         };
         await createAssignment(assignmentPayload).catch(e => console.warn("Assignment failed", e));
+      }
+
+      // 4. Upload Documents
+      if (documents.length > 0) {
+        for (const doc of documents) {
+          try {
+            await uploadDocument(personId, doc.file, doc.type);
+          } catch (e) {
+            console.warn(`Failed to upload document ${doc.type}:`, e);
+          }
+        }
       }
 
       setSuccessId(personId);
@@ -242,17 +333,26 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                 <label className="label">Full Name *</label>
                 <input name="full_name" value={formData.full_name} onChange={handleChange} className="input-field" placeholder="John Doe" />
               </div>
+              {hasRole('admin') && (
+                <div className="form-group">
+                  <label className="label">Role</label>
+                  <select name="role" value={formData.role} onChange={handleChange} className="select-field">
+                    <option value="worker">Worker</option>
+                    <option value="supervisor">Supervisor</option>
+                  </select>
+                </div>
+              )}
               <div className="form-group">
-                <label className="label">Role</label>
-                <select name="role" value={formData.role} onChange={handleChange} className="select-field" disabled={!hasRole('admin')}>
-                  <option value="worker">Worker</option>
-                  <option value="supervisor">Supervisor</option>
-                  {hasRole('admin') && <option value="admin">Admin</option>}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="label">National ID</label>
-                <input name="nationalID" value={formData.nationalID} onChange={handleChange} className="input-field" />
+                <label className="label">National ID *</label>
+                <input 
+                  name="nationalID" 
+                  value={formData.nationalID} 
+                  onChange={handleChange} 
+                  className="input-field" 
+                  placeholder="14 digits"
+                  maxLength={14}
+                  pattern="[0-9]{14}"
+                />
               </div>
               <div className="form-group">
                 <label className="label">Passport</label>
@@ -263,8 +363,16 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                 <input name="email" type="email" value={formData.email} onChange={handleChange} className="input-field" />
               </div>
               <div className="form-group">
-                <label className="label">Phone</label>
-                <input name="phone" value={formData.phone} onChange={handleChange} className="input-field" />
+                <label className="label">Phone *</label>
+                <input 
+                  name="phone" 
+                  value={formData.phone} 
+                  onChange={handleChange} 
+                  className="input-field" 
+                  placeholder="11 digits (no country code)"
+                  maxLength={11}
+                  pattern="[0-9]{11}"
+                />
               </div>
               <div className="form-group">
                 <label className="label">Date of Birth</label>
@@ -283,17 +391,156 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                 <input name="street_address" value={formData.street_address} onChange={handleChange} className="input-field" />
               </div>
               <div className="form-group">
+                <label className="label">Region</label>
+                <input name="region" value={formData.region} onChange={handleChange} className="input-field" />
+              </div>
+              <div className="form-group">
                 <label className="label">City</label>
                 <input name="city" value={formData.city} onChange={handleChange} className="input-field" />
               </div>
               <div className="form-group">
-                  <label className="label">Supervisor</label>
-                  <select name="supervisor_id" value={formData.supervisor_id} onChange={handleChange} className="select-field">
+                <label className="label">Hire Date *</label>
+                <input 
+                  name="hire_date" 
+                  type="date" 
+                  value={formData.hire_date} 
+                  onChange={handleChange} 
+                  className="input-field"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="label">Termination Date</label>
+                <input 
+                  name="termination_date" 
+                  type="date" 
+                  value={formData.termination_date} 
+                  onChange={handleChange} 
+                  className="input-field"
+                />
+              </div>
+              {formData.role === 'worker' && (
+                <>
+                  <div className="form-group">
+                    <label className="label">Worker Type</label>
+                    <select name="worker_type" value={formData.worker_type} onChange={handleChange} className="select-field">
+                      <option value="">Select...</option>
+                      <option value="permanent">Permanent</option>
+                      <option value="temporary">Temporary</option>
+                      <option value="contractor">Contractor</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="label">Supervisor</label>
+                    <select name="supervisor_id" value={formData.supervisor_id} onChange={handleChange} className="select-field">
                       <option value="">None</option>
                       {supervisors.map(s => (
-                          <option key={s.id} value={s.id}>{s.full_name}</option>
+                        <option key={s.id} value={s.id}>{s.full_name}</option>
                       ))}
-                  </select>
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="form-group">
+                <label className="label">Pay Cycle</label>
+                <select name="pay_cycle" value={formData.pay_cycle} onChange={handleChange} className="select-field">
+                  <option value="">Select...</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Biweekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input 
+                    type="checkbox" 
+                    name="overtime_eligible" 
+                    checked={formData.overtime_eligible} 
+                    onChange={handleChange}
+                  />
+                  Overtime Eligible
+                </label>
+              </div>
+              <div className="form-group">
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input 
+                    type="checkbox" 
+                    name="incentive_eligible" 
+                    checked={formData.incentive_eligible} 
+                    onChange={handleChange}
+                  />
+                  Incentive Eligible
+                </label>
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1', marginTop: '1rem' }}>
+                <label className="label">Documents (Optional)</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {documents.map((doc, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', backgroundColor: '#f3f4f6', borderRadius: '4px' }}>
+                      <span style={{ flex: 1, fontSize: '0.875rem' }}>
+                        <strong>{doc.type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:</strong> {doc.file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDocuments(docs => docs.filter((_, i) => i !== idx))}
+                        style={{ padding: '0.25rem 0.5rem', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.875rem' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <select
+                      id="doc-type-select"
+                      style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '0.875rem' }}
+                    >
+                      <option value="">Select document type...</option>
+                      <option value="national_id">National ID</option>
+                      <option value="passport">Passport</option>
+                      <option value="drivers_license">Driver's License</option>
+                      <option value="visa">Visa</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <input
+                      type="file"
+                      id="doc-file-input"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        const typeSelect = document.getElementById('doc-type-select');
+                        const docType = typeSelect.value;
+                        if (file && docType) {
+                          setDocuments(docs => [...docs, { type: docType, file }]);
+                          typeSelect.value = '';
+                          e.target.value = '';
+                        } else if (file && !docType) {
+                          alert('Please select a document type first');
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const typeSelect = document.getElementById('doc-type-select');
+                        const fileInput = document.getElementById('doc-file-input');
+                        if (typeSelect.value) {
+                          fileInput.click();
+                        } else {
+                          alert('Please select a document type first');
+                        }
+                      }}
+                      style={{ padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.875rem' }}
+                    >
+                      Add Document
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: 0 }}>
+                    Supported formats: PDF, JPG, PNG. Documents will be uploaded after registration.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -333,15 +580,48 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
               </div>
             )}
 
-            {(formData.payment_method === 'wallet' || formData.payment_method === 'instapay') && (
+            {formData.payment_method === 'wallet' && (
                <div className="form-grid">
                  <div className="form-group">
-                   <label className="label">Provider</label>
-                   <input name="wallet_provider" value={formData.wallet_provider} onChange={handleChange} className="input-field" placeholder="e.g. Vodafone Cash" />
+                   <label className="label">Provider *</label>
+                   <select name="wallet_provider" value={formData.wallet_provider} onChange={handleChange} className="select-field" required>
+                     <option value="">Select Provider...</option>
+                     <option value="Vodafone Cash">Vodafone Cash</option>
+                     <option value="Etsalat Cash">Etsalat Cash</option>
+                     <option value="Orange Cash">Orange Cash</option>
+                     <option value="WE Pay">WE Pay</option>
+                   </select>
                  </div>
                  <div className="form-group">
-                   <label className="label">Number</label>
-                   <input name="wallet_number" value={formData.wallet_number} onChange={handleChange} className="input-field" />
+                   <label className="label">Phone Number *</label>
+                   <input 
+                     name="wallet_number" 
+                     value={formData.wallet_number} 
+                     onChange={handleChange} 
+                     className="input-field"
+                     placeholder="11 digits (no country code)"
+                     maxLength={11}
+                     pattern="[0-9]{11}"
+                     required
+                   />
+                 </div>
+               </div>
+            )}
+
+            {formData.payment_method === 'instapay' && (
+               <div className="form-grid">
+                 <div className="form-group">
+                   <label className="label">Phone Number *</label>
+                   <input 
+                     name="wallet_number" 
+                     value={formData.wallet_number} 
+                     onChange={handleChange} 
+                     className="input-field"
+                     placeholder="11 digits (no country code)"
+                     maxLength={11}
+                     pattern="[0-9]{11}"
+                     required
+                   />
                  </div>
                </div>
             )}

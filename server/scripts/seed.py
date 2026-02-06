@@ -1,5 +1,6 @@
 import sys
 import os
+import traceback
 from datetime import date
 
 # Add project root to path so we can import 'server'
@@ -9,6 +10,7 @@ from sqlmodel import Session, select
 from server.db import engine
 from server.db.models import Person, Role, PersonStatus
 from server.app.services.password_service import hash_password
+
 
 def seed():
     print("Seeding database...")
@@ -32,7 +34,7 @@ def seed():
                 session.add(admin)
             else:
                 print("Admin already exists.")
-            
+
             # Supervisor
             sup = session.get(Person, "SUP001")
             if not sup:
@@ -52,31 +54,15 @@ def seed():
             else:
                 print("Supervisor already exists.")
 
-            # Worker
-            worker = session.get(Person, "WRK001")
-            if not worker:
-                print("Creating Worker (WRK001)...")
-                worker = Person(
-                    id="WRK001",
-                    full_name="John Worker",
-                    phone="0000000002",
-                    role=Role.WORKER,
-                    status=PersonStatus.ACTIVE,
-                    password_hash=hash_password("worker123"),
-                    nationalID="33333333333333",
-                    hire_date=date.today(),  # Add this
-                )
-                session.add(worker)
-            else:
-                print("Worker already exists.")
-                
             session.commit()
             print("Seeding complete!")
-            
+
     except Exception as e:
         print(f"Error during seeding: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     seed()
