@@ -47,6 +47,7 @@ class Config(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ACCESS_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_EXPIRE_DAYS: int = 7
+    SUPERVISOR_DEFAULT_PASSWORD: str = "Welcome@123"
 
 
 config = Config()

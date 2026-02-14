@@ -6,21 +6,28 @@ export const API_BASE_URL =
 export const API_ENDPOINTS = {
   // Auth
   LOGIN: "/api/v1/auth/login",
+  CHANGE_PASSWORD: "/api/v1/auth/change-password",
   
   // Employee/Person endpoints
   REGISTER_EMPLOYEE: "/api/v1/employees",
   ENROLL_FACE: (employeeId) => `/api/v1/employees/${employeeId}/enroll-face`,
   GET_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
+  UPDATE_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
+  DELETE_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
   LIST_EMPLOYEES: "/api/v1/employees",
   CHECK_IDENTITY: "/api/v1/employees/check-identity",
   PAYMENT_INFO: (employeeId) => `/api/v1/employees/${employeeId}/payment-info`,
   UPLOAD_DOCUMENT: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
+  LIST_DOCUMENTS: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
+  DOWNLOAD_DOCUMENT: (employeeId, docId) => `/api/v1/employees/${employeeId}/documents/${docId}/download`,
+  DELETE_DOCUMENT: (employeeId, docId) => `/api/v1/employees/${employeeId}/documents/${docId}`,
   
   // Attendance endpoints
   VERIFY_ATTENDANCE: "/api/v1/attendance/verify",
   CHECK_IN: "/api/v1/attendance/check-in",
   CHECK_OUT: "/api/v1/attendance/check-out",
   ATTENDANCE_HISTORY: "/api/v1/attendance/history",
+  IMPORT_ATTENDANCE: "/api/v1/attendance/import",
   RECONCILE_ATTENDANCE: "/api/v1/attendance/reconcile",
   
   // Location endpoints

@@ -29,6 +29,8 @@ class AttendanceRead(BaseModel):
     status: str
     location_name: Optional[str] = None
     shift_name: Optional[str] = None
+    assignment_title: Optional[str] = None
+    assignment_rate: Optional[float] = None
 
     class Config:
         from_attributes = True

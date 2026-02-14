@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from server.db import get_session
 from server.db.models import Shift
 from server.app.schemas.shift import ShiftCreate, ShiftRead, ShiftUpdate
+from server.app.dependencies import require_admin, require_supervisor_or_admin
 
 router = APIRouter()
 
@@ -14,6 +15,7 @@ router = APIRouter()
 async def list_shifts(
     active_only: bool = True,
     session: Session = Depends(get_session),
+    current_user=Depends(require_supervisor_or_admin),
 ):
     stmt = select(Shift)
     return session.exec(stmt).all()
@@ -22,6 +24,7 @@ async def list_shifts(
 async def create_shift(
     shift_in: ShiftCreate,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     shift = Shift(**shift_in.model_dump())
     session.add(shift)
@@ -34,6 +37,7 @@ async def update_shift(
     shift_id: UUID,
     shift_in: ShiftUpdate,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     shift = session.get(Shift, shift_id)
     if not shift:
@@ -51,6 +55,7 @@ async def update_shift(
 async def delete_shift(
     shift_id: UUID,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     shift = session.get(Shift, shift_id)
     if not shift:

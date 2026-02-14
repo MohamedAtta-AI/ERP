@@ -1,262 +1,307 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import FaceCapture from "../FaceCapture/FaceCapture";
-import { verifyAttendance, checkIn, checkOut, getAttendanceHistory } from "../../services/api";
+import {
+  checkIn,
+  checkOut,
+  listLocations,
+  listShifts,
+  verifyAttendance,
+} from "../../services/api";
 import styles from "./AttendanceCheck.module.css";
 
-/**
- * Rapid Attendance Check Component
- * 
- * Features:
- * - Continuous scanning - never stops camera
- * - Shows "Verified" indicator briefly on success
- * - On failure/spoofing, logs to console and continues scanning
- * - Supports both check-in and check-out based on existing attendance
- * - Ready for next person immediately
- */
-const AttendanceCheck = ({ onBack }) => {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [verificationStatus, setVerificationStatus] = useState(null); // "verified" | "verifying" | null
-  const [lastVerifiedPerson, setLastVerifiedPerson] = useState(null);
-  const [lastAction, setLastAction] = useState(null); // "check-in" | "check-out"
-  const [recentCheckins, setRecentCheckins] = useState([]); // Last few check-ins for display
-  const [captureKey, setCaptureKey] = useState(0); // Key to force FaceCapture remount
-  const statusTimeoutRef = useRef(null);
+const DATA_EVENT = "erp:data-changed";
 
-  // Auto-clear verification status and reset for next capture
+const AttendanceCheck = ({ onBack }) => {
+  const [locations, setLocations] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [captureKey, setCaptureKey] = useState(0);
+
+  const [sessionSetup, setSessionSetup] = useState({
+    mode: "check-in",
+    site_id: "",
+    shift_id: "",
+  });
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [recent, setRecent] = useState([]);
+
   useEffect(() => {
-    if (verificationStatus === "verified") {
-      statusTimeoutRef.current = setTimeout(() => {
-        setVerificationStatus(null);
-        setLastVerifiedPerson(null);
-        setLastAction(null);
-        // Force FaceCapture to remount for next person
-        setCaptureKey((k) => k + 1);
-      }, 2500); // Show "Verified" for 2.5 seconds
-    }
-    return () => {
-      if (statusTimeoutRef.current) {
-        clearTimeout(statusTimeoutRef.current);
+    const loadReferenceData = async () => {
+      const [siteData, shiftData] = await Promise.all([
+        listLocations(true).catch(() => []),
+        listShifts(true).catch(() => []),
+      ]);
+      setLocations(siteData || []);
+      setShifts(shiftData || []);
+
+      setSessionSetup((prev) => {
+        const next = { ...prev };
+        const siteStillExists = siteData?.some((location) => location.id === prev.site_id);
+        const shiftStillExists = shiftData?.some((shift) => shift.id === prev.shift_id);
+        if (!siteStillExists) next.site_id = siteData?.[0]?.id || "";
+        if (!shiftStillExists) next.shift_id = shiftData?.[0]?.id || "";
+        return next;
+      });
+    };
+
+    const onDataChanged = (event) => {
+      const changeType = event?.detail?.type;
+      if (!changeType || ["site", "shift"].includes(changeType)) {
+        loadReferenceData();
       }
     };
-  }, [verificationStatus]);
+    const onFocus = () => loadReferenceData();
 
-  // Check if person has already checked in today
-  const checkTodayAttendance = useCallback(async (personId) => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const history = await getAttendanceHistory({
-        person_id: personId,
-        start_date: today,
-        end_date: today,
-        limit: 1,
-      });
-      if (history && history.length > 0) {
-        return history[0]; // Return today's attendance record
-      }
-    } catch (err) {
-      console.error("Error checking attendance:", err);
-    }
-    return null;
+    loadReferenceData();
+    window.addEventListener(DATA_EVENT, onDataChanged);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener(DATA_EVENT, onDataChanged);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
-  const handleCapture = useCallback(async (imageFile) => {
-    if (isProcessing) return;
-    
-    setIsProcessing(true);
-    setVerificationStatus("verifying");
+  const canStartSession = useMemo(
+    () => Boolean(sessionSetup.mode && sessionSetup.site_id && sessionSetup.shift_id),
+    [sessionSetup]
+  );
 
-    try {
-      // Verify face with backend (includes anti-spoofing check)
-      const verifyResult = await verifyAttendance(imageFile);
+  const handleBack = () => {
+    setSessionStarted(false);
+    setFeedback(null);
+    setCaptureKey((key) => key + 1);
+    if (onBack) onBack();
+  };
 
-      // Check for spoofing
-      if (verifyResult && verifyResult.is_real === false) {
-        console.warn("🚨 SPOOFING DETECTED - Anti-spoofing check failed", {
-          timestamp: new Date().toISOString(),
-          is_real: verifyResult.is_real,
-          message: verifyResult.message || "Spoofing attempt",
-        });
-        // Continue scanning - don't show error to user
-        setVerificationStatus(null);
-        setCaptureKey((k) => k + 1);
-        setIsProcessing(false);
-        return;
-      }
+  const pushRecent = (name, personId, stateText) => {
+    const item = {
+      id: `${Date.now()}-${personId || "unknown"}`,
+      name,
+      personId,
+      stateText,
+      at: new Date().toLocaleTimeString(),
+    };
+    setRecent((prev) => [item, ...prev].slice(0, 8));
+  };
 
-      if (verifyResult && verifyResult.match_found) {
-        // High confidence check - don't proceed for low confidence matches
-        const confidence = verifyResult.similarity_score || 0;
-        if (confidence < 0.65) {
-          console.log("⚠️ Low confidence match - rejecting", {
-            confidence,
-            timestamp: new Date().toISOString(),
-          });
-          // Continue scanning
-          setVerificationStatus(null);
-          setCaptureKey((k) => k + 1);
-          setIsProcessing(false);
+  const finishCapture = () => {
+    setIsProcessing(false);
+    setCaptureKey((key) => key + 1);
+  };
+
+  const handleCapture = useCallback(
+    async (imageFile) => {
+      if (isProcessing || !sessionStarted) return;
+      setIsProcessing(true);
+      setFeedback({ type: "info", text: "Verifying face..." });
+
+      try {
+        const verifyResult = await verifyAttendance(
+          imageFile,
+          sessionSetup.site_id,
+          sessionSetup.shift_id
+        );
+
+        if (!verifyResult?.match_found) {
+          setFeedback({ type: "error", text: "Face not recognized. Try again." });
+          pushRecent("Unknown", "-", "Not recognized");
+          finishCapture();
           return;
         }
 
-        const personId = verifyResult.person_id || verifyResult.employee_id;
-        
-        // Check if person has already checked in today
-        const todayAttendance = await checkTodayAttendance(personId);
-        let action = "check-in";
-        
-        if (todayAttendance && todayAttendance.check_in && !todayAttendance.check_out) {
-          // Already checked in but not out - perform check-out
-          action = "check-out";
-          try {
-            await checkOut(imageFile);
-            console.log("✅ Check-out recorded for", personId);
-          } catch (checkOutErr) {
-            console.warn("Check-out recording failed:", checkOutErr);
-            // Continue - verification was successful
+        const personName = verifyResult.full_name || "Unknown";
+        const personId = verifyResult.person_id || "-";
+        const current = verifyResult.current_status || "none";
+        const mode = sessionSetup.mode;
+
+        if (mode === "check-in") {
+          if (current === "checked-in" || current === "checked-out") {
+            setFeedback({
+              type: "warn",
+              text: `${personName} is already checked in for today.`,
+            });
+            pushRecent(personName, personId, "Already checked in");
+            finishCapture();
+            return;
           }
-        } else if (!todayAttendance || !todayAttendance.check_in) {
-          // Not checked in yet - perform check-in
-          try {
-            await checkIn(imageFile);
-            console.log("✅ Check-in recorded for", personId);
-          } catch (checkInErr) {
-            console.warn("Check-in recording failed:", checkInErr);
-            // Continue - verification was successful
-          }
-        } else {
-          // Already checked in AND out today
-          action = "already-done";
-          console.log("ℹ️ Already checked in and out today", personId);
+
+          await checkIn(imageFile, sessionSetup.site_id, sessionSetup.shift_id);
+          setFeedback({
+            type: "success",
+            text: `Check-in succeeded for ${personName}.`,
+          });
+          pushRecent(personName, personId, "Checked in");
+          finishCapture();
+          return;
         }
 
-        // Add to recent check-ins
-        const checkinRecord = {
-          id: Date.now(),
-          name: verifyResult.full_name,
-          personId: personId,
-          time: new Date().toLocaleTimeString(),
-          confidence: confidence,
-          action: action === "check-in" ? "In" : action === "check-out" ? "Out" : "Done",
-        };
+        if (current === "checked-out") {
+          setFeedback({
+            type: "warn",
+            text: `${personName} already checked out today.`,
+          });
+          pushRecent(personName, personId, "Already checked out");
+          finishCapture();
+          return;
+        }
+        if (current === "none") {
+          setFeedback({
+            type: "error",
+            text: `${personName} has no check-in yet. Check-in is required first.`,
+          });
+          pushRecent(personName, personId, "No check-in found");
+          finishCapture();
+          return;
+        }
 
-        setRecentCheckins((prev) => [checkinRecord, ...prev].slice(0, 5));
-
-        // Show verified status
-        setLastVerifiedPerson(verifyResult);
-        setLastAction(action);
-        setVerificationStatus("verified");
-      } else {
-        // No match found - log and continue scanning
-        console.log("👤 Face not recognized - continuing scan", {
-          timestamp: new Date().toISOString(),
-          match_found: verifyResult?.match_found,
+        await checkOut(imageFile, sessionSetup.site_id, sessionSetup.shift_id);
+        setFeedback({
+          type: "success",
+          text: `Check-out succeeded for ${personName}.`,
         });
-        setVerificationStatus(null);
-        setCaptureKey((k) => k + 1);
-      }
-    } catch (err) {
-      console.error("❌ Verification error:", err);
-      const errorMsg = err.message || "";
-      
-      if (errorMsg.includes("spoof") || errorMsg.includes("real")) {
-        console.warn("🚨 SPOOFING DETECTED (error response)", {
-          timestamp: new Date().toISOString(),
-          error: errorMsg,
+        pushRecent(personName, personId, "Checked out");
+      } catch (error) {
+        setFeedback({
+          type: "error",
+          text: error?.message || "Attendance action failed.",
         });
+      } finally {
+        finishCapture();
       }
-      
-      // Continue scanning on any error
-      setVerificationStatus(null);
-      setCaptureKey((k) => k + 1);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [isProcessing, checkTodayAttendance]);
+    },
+    [isProcessing, sessionStarted, sessionSetup]
+  );
 
-  const handleCancel = useCallback(() => {
-    if (onBack) {
-      onBack();
-    }
-  }, [onBack]);
+  if (!sessionStarted) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.header}>
+          <button className={styles.backButton} onClick={handleBack}>Back</button>
+          <h1 className={styles.title}>Attendance Session Setup</h1>
+          <div className={styles.headerSpacer} />
+        </div>
+        <div className={styles.setupCard}>
+          <div className={styles.setupGrid}>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Mode</label>
+              <select
+                className={styles.selectField}
+                value={sessionSetup.mode}
+                onChange={(e) =>
+                  setSessionSetup((prev) => ({ ...prev, mode: e.target.value }))
+                }
+              >
+                <option value="check-in">Check In</option>
+                <option value="check-out">Check Out</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Location</label>
+              <select
+                className={styles.selectField}
+                value={sessionSetup.site_id}
+                onChange={(e) =>
+                  setSessionSetup((prev) => ({ ...prev, site_id: e.target.value }))
+                }
+              >
+                <option value="">Select location...</option>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Shift</label>
+              <select
+                className={styles.selectField}
+                value={sessionSetup.shift_id}
+                onChange={(e) =>
+                  setSessionSetup((prev) => ({ ...prev, shift_id: e.target.value }))
+                }
+              >
+                <option value="">Select shift...</option>
+                {shifts.map((shift) => (
+                  <option key={shift.id} value={shift.id}>
+                    {shift.name} ({shift.start_time}-{shift.end_time})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <button
+            className={styles.startBtn}
+            disabled={!canStartSession}
+            onClick={() => setSessionStarted(true)}
+          >
+            Start Session
+          </button>
+          <p className={styles.setupHint}>
+            This setup is used for all captures until you leave this module.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
-      {/* Header */}
       <div className={styles.header}>
-        <button className={styles.backButton} onClick={handleCancel}>
-          ← Back
+        <button className={styles.backButton} onClick={handleBack}>Back</button>
+        <h1 className={styles.title}>
+          Attendance: {sessionSetup.mode === "check-in" ? "Check In" : "Check Out"}
+        </h1>
+        <button className={styles.backButton} onClick={() => setSessionStarted(false)}>
+          Change Setup
         </button>
-        <h1 className={styles.title}>Attendance Check-In</h1>
-        <div className={styles.headerSpacer} />
       </div>
 
-      {/* Main Content */}
+      <div className={styles.meta}>
+        <span>
+          Location: {locations.find((location) => location.id === sessionSetup.site_id)?.name || "-"}
+        </span>
+        <span>
+          Shift: {shifts.find((shift) => shift.id === sessionSetup.shift_id)?.name || "-"}
+        </span>
+      </div>
+
       <div className={styles.mainContent}>
-        {/* Face Capture Area */}
         <div className={styles.captureSection}>
           <FaceCapture
             key={captureKey}
             onCapture={handleCapture}
-            onCancel={handleCancel}
+            onCancel={handleBack}
             requiresLiveness={false}
             mode="attendance"
-            verificationResult={
-              verificationStatus === "verifying"
-                ? { verifying: true }
-                : verificationStatus === "verified" && lastVerifiedPerson
-                ? {
-                    verified: true,
-                    full_name: lastVerifiedPerson.full_name,
-                    person_id: lastVerifiedPerson.person_id || lastVerifiedPerson.employee_id,
-                    action: lastAction,
-                  }
-                : null
-            }
+            verificationResult={isProcessing ? { verifying: true } : null}
           />
-
-          {/* Verifying Status Indicator */}
-          {verificationStatus === "verifying" && (
-            <div className={styles.statusIndicator}>
-              <div className={styles.statusSpinner} />
-              <span>Verifying...</span>
-            </div>
-          )}
         </div>
 
-        {/* Recent Check-ins Sidebar */}
         <div className={styles.sidebar}>
-          <h3 className={styles.sidebarTitle}>Recent Check-ins</h3>
-          {recentCheckins.length === 0 ? (
-            <p className={styles.noCheckins}>No check-ins yet</p>
+          <h3 className={styles.sidebarTitle}>Last Results</h3>
+          {feedback && (
+            <div className={`${styles.feedback} ${styles[`feedback_${feedback.type}`]}`}>
+              {feedback.text}
+            </div>
+          )}
+          <h4 className={styles.sidebarSubtitle}>Recent</h4>
+          {recent.length === 0 ? (
+            <p className={styles.emptyText}>No attendance actions yet.</p>
           ) : (
-            <ul className={styles.checkinList}>
-              {recentCheckins.map((checkin) => (
-                <li key={checkin.id} className={styles.checkinItem}>
-                  <div className={styles.checkinInfo}>
-                    <span className={styles.checkinName}>{checkin.name}</span>
-                    <span className={styles.checkinId}>{checkin.personId}</span>
-                  </div>
-                  <div className={styles.checkinMeta}>
-                    {checkin.action && (
-                      <span className={`${styles.checkinAction} ${
-                        checkin.action === "In" ? styles.actionIn : 
-                        checkin.action === "Out" ? styles.actionOut : styles.actionDone
-                      }`}>
-                        {checkin.action}
-                      </span>
-                    )}
-                    <span className={styles.checkinTime}>{checkin.time}</span>
+            <ul className={styles.recentList}>
+              {recent.map((item) => (
+                <li key={item.id} className={styles.recentItem}>
+                  <div>{item.name}</div>
+                  <div className={styles.recentMeta}>
+                    {item.personId} | {item.stateText} | {item.at}
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </div>
-      </div>
-
-      {/* Instructions */}
-      <div className={styles.instructions}>
-        <p>Position your face in the yellow box. Check-in is automatic when recognized.</p>
       </div>
     </div>
   );

@@ -60,6 +60,15 @@ const BANK_NAMES = [
 ];
 
 const STORAGE_KEY = 'erp_registration_form_data';
+const DATA_EVENT = 'erp:data-changed';
+const getDefaultAssignment = () => ({
+  site_id: '',
+  shift_id: '',
+  assignment_title: '',
+  rate: '',
+  effective_from: new Date().toISOString().split('T')[0],
+  effective_to: '',
+});
 
 const PersonRegistrationWizard = ({ onSuccess }) => {
   const { user, hasRole } = useAuth();
@@ -78,7 +87,29 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        const legacyAssignment = {
+          site_id: parsed.site_id || '',
+          shift_id: parsed.shift_id || '',
+          assignment_title: parsed.assignment_title || '',
+          rate: parsed.rate || '',
+          effective_from: parsed.effective_from || new Date().toISOString().split('T')[0],
+          effective_to: parsed.effective_to || '',
+        };
+        const hasLegacyAssignment =
+          !!legacyAssignment.site_id ||
+          !!legacyAssignment.shift_id ||
+          !!legacyAssignment.assignment_title ||
+          !!legacyAssignment.rate ||
+          !!legacyAssignment.effective_to;
+        const normalizedAssignments =
+          Array.isArray(parsed.assignments) && parsed.assignments.length > 0
+            ? parsed.assignments.map((a) => ({ ...getDefaultAssignment(), ...a }))
+            : (hasLegacyAssignment ? [legacyAssignment] : []);
+        return {
+          ...parsed,
+          assignments: normalizedAssignments,
+        };
       }
     } catch (e) {
       console.warn('Failed to load saved form data:', e);
@@ -115,17 +146,16 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
     wallet_number: '',
 
     // Assignment
-    site_id: '',
-    shift_id: '',
-    assignment_title: '',
-    rate: '',
-    effective_from: new Date().toISOString().split('T')[0],
-    effective_to: '',
+    assignments: [],
     termination_date: '',
   };
   };
 
   const [formData, setFormData] = useState(getInitialFormData);
+  const [showAssignmentForm, setShowAssignmentForm] = useState(() => {
+    const initial = getInitialFormData();
+    return (initial.assignments || []).length > 0;
+  });
   const [fieldErrors, setFieldErrors] = useState({});
   const [documents, setDocuments] = useState([]); // Array of {type: string, file: File}
 
@@ -137,6 +167,12 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
       console.warn('Failed to save form data:', e);
     }
   }, [formData]);
+
+  useEffect(() => {
+    if ((formData.assignments || []).length === 0) {
+      setShowAssignmentForm(false);
+    }
+  }, [formData.assignments]);
 
   // Clear saved form data on successful submission
   const clearSavedData = () => {
@@ -153,18 +189,32 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         const [locs, shfs, emps] = await Promise.all([
           listLocations(true).catch(() => []),
           listShifts(true).catch(() => []),
-          listEmployees({ role: 'supervisor' }).catch(() => [])
+          listEmployees({ role: 'supervisor', limit: 1000 }).catch(() => [])
         ]);
         setLocations(locs || []);
         setShifts(shfs || []);
-        // Filter supervisors from employees if needed, assuming listEmployees supports role filter or we filter manually
         const sups = Array.isArray(emps) ? emps.filter(e => e.role === 'supervisor' || e.role === 'admin') : [];
         setSupervisors(sups);
       } catch (err) {
         console.error("Error loading reference data", err);
       }
     };
+
+    const onDataChanged = (event) => {
+      const changeType = event?.detail?.type;
+      if (!changeType || ['employee', 'site', 'shift'].includes(changeType)) {
+        loadData();
+      }
+    };
+    const onFocus = () => loadData();
+
     loadData();
+    window.addEventListener(DATA_EVENT, onDataChanged);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener(DATA_EVENT, onDataChanged);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   // Update role based on logged in user permissions
@@ -204,6 +254,32 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
       }
       
       return updates;
+    });
+  };
+
+  const handleAssignmentChange = (index, name, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      assignments: prev.assignments.map((assignment, i) =>
+        i === index ? { ...assignment, [name]: value } : assignment
+      ),
+    }));
+  };
+
+  const addAssignment = () => {
+    setFormData((prev) => ({
+      ...prev,
+      assignments: [...prev.assignments, getDefaultAssignment()],
+    }));
+    setShowAssignmentForm(true);
+  };
+
+  const removeAssignment = (index) => {
+    setFormData((prev) => {
+      return {
+        ...prev,
+        assignments: prev.assignments.filter((_, i) => i !== index),
+      };
     });
   };
 
@@ -320,7 +396,19 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         }
       }
     }
-    // Step 3 optional?
+    if (currentStep === 3) {
+      const hasInvalid = formData.assignments.some((assignment) => {
+        const hasAnyValue =
+          assignment.site_id ||
+          assignment.shift_id ||
+          assignment.assignment_title ||
+          assignment.rate ||
+          assignment.effective_to;
+        if (!hasAnyValue) return false;
+        return !assignment.site_id || !assignment.shift_id || !assignment.effective_from;
+      });
+      if (hasInvalid) return "Each assignment row must include Site, Shift, and Effective From.";
+    }
     return null;
   };
 
@@ -364,7 +452,7 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         city: formData.city || null,
         role: formData.role,
         status: formData.status,
-        worker_type: formData.worker_type === 'temporary' ? 'temp' : (formData.worker_type || null),
+        worker_type: formData.worker_type === 'temp' ? 'temp' : (formData.worker_type || null),
         pay_cycle: formData.pay_cycle || null,
         supervisor_id: formData.supervisor_id || null,
         overtime_eligible: formData.overtime_eligible,
@@ -399,18 +487,31 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         await savePaymentInfo(personId, paymentPayload).catch(e => console.warn("Payment info failed", e));
       }
 
-      // 3. Create Assignment
-      if (formData.site_id && formData.shift_id) {
-        const assignmentPayload = {
-          person_id: personId,
-          site_id: formData.site_id,
-          shift_id: formData.shift_id,
-          title: formData.assignment_title || formData.role,
-          rate: formData.rate ? parseFloat(formData.rate) : 0,
-          effective_from: formData.effective_from,
-          effective_to: formData.effective_to || null,
-        };
-        await createAssignment(assignmentPayload).catch(e => console.warn("Assignment failed", e));
+      // 3. Create Assignments
+      const assignmentRequests = (formData.assignments || [])
+        .filter((assignment) => assignment.site_id && assignment.shift_id)
+        .map((assignment) => {
+          const assignmentPayload = {
+            person_id: personId,
+            site_id: assignment.site_id,
+            shift_id: assignment.shift_id,
+            title: assignment.assignment_title || formData.role,
+            rate: assignment.rate ? parseFloat(assignment.rate) : 0,
+            effective_from: assignment.effective_from || new Date().toISOString().split('T')[0],
+            effective_to: assignment.effective_to || null,
+          };
+          return createAssignment(assignmentPayload);
+        });
+
+      if (assignmentRequests.length > 0) {
+        await Promise.all(
+          assignmentRequests.map((request) =>
+            request.catch((e) => {
+              console.warn("Assignment failed", e);
+              return null;
+            })
+          )
+        );
       }
 
       // 4. Upload Documents
@@ -425,6 +526,7 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
       }
 
       setSuccessId(personId);
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: 'employee' } }));
       if (onSuccess) onSuccess({ employee_id: personId, full_name: formData.full_name });
 
     } catch (err) {
@@ -478,6 +580,11 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                     <option value="worker">Worker</option>
                     <option value="supervisor">Supervisor</option>
                   </select>
+                  {formData.role === 'supervisor' && (
+                    <p style={{ marginTop: '0.35rem', fontSize: '0.78rem', color: '#0f766e' }}>
+                      New supervisor accounts are created with default password <strong>Welcome@123</strong> and are asked to change it at first login.
+                    </p>
+                  )}
                   {fieldErrors.role && <span className="field-error">{fieldErrors.role}</span>}
                 </div>
               )}
@@ -787,42 +894,116 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         {step === 3 && (
           <div className="form-animation">
              <h3 className="section-title">Assignment</h3>
-             <div className="form-grid">
-               <div className="form-group">
-                 <label className="label">Site</label>
-                 <select name="site_id" value={formData.site_id} onChange={handleChange} className="select-field">
-                   <option value="">Select Site...</option>
-                   {locations.map(l => (
-                     <option key={l.id} value={l.id}>{l.name}</option>
-                   ))}
-                 </select>
+             {!showAssignmentForm ? (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                 <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
+                   No assignment is required right now. Add only when needed.
+                 </p>
+                 <div>
+                   <button type="button" onClick={addAssignment} className="btn btn-secondary">
+                     + Add Assignment
+                   </button>
+                 </div>
                </div>
-               <div className="form-group">
-                 <label className="label">Shift</label>
-                 <select name="shift_id" value={formData.shift_id} onChange={handleChange} className="select-field">
-                   <option value="">Select Shift...</option>
-                   {shifts.map(s => (
-                     <option key={s.id} value={s.id}>{s.name} ({s.start_time}-{s.end_time})</option>
-                   ))}
-                 </select>
+             ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                 {(formData.assignments || []).map((assignment, index) => (
+                   <div key={`assignment-${index}`} className="glass-panel" style={{ padding: '1rem' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                       <h4 style={{ margin: 0 }}>Assignment #{index + 1}</h4>
+                       <button
+                         type="button"
+                         onClick={() => removeAssignment(index)}
+                         className="btn btn-danger"
+                         style={{ padding: '0.35rem 0.75rem' }}
+                       >
+                         Remove
+                       </button>
+                     </div>
+                     <div className="form-grid">
+                       <div className="form-group">
+                         <label className="label">Site</label>
+                         <select
+                           value={assignment.site_id}
+                           onChange={(e) => handleAssignmentChange(index, 'site_id', e.target.value)}
+                           className="select-field"
+                         >
+                           <option value="">Select Site...</option>
+                           {locations.map((l) => (
+                             <option key={l.id} value={l.id}>{l.name}</option>
+                           ))}
+                         </select>
+                       </div>
+                       <div className="form-group">
+                         <label className="label">Shift</label>
+                         <select
+                           value={assignment.shift_id}
+                           onChange={(e) => handleAssignmentChange(index, 'shift_id', e.target.value)}
+                           className="select-field"
+                         >
+                           <option value="">Select Shift...</option>
+                           {shifts.map((s) => (
+                             <option key={s.id} value={s.id}>{s.name} ({s.start_time}-{s.end_time})</option>
+                           ))}
+                         </select>
+                       </div>
+                       <div className="form-group">
+                         <label className="label">Rate</label>
+                         <input
+                           type="number"
+                           value={assignment.rate}
+                           onChange={(e) => handleAssignmentChange(index, 'rate', e.target.value)}
+                           className="input-field"
+                           placeholder="0.00"
+                         />
+                       </div>
+                       <div className="form-group">
+                         <label className="label">Title</label>
+                         <input
+                           value={assignment.assignment_title}
+                           onChange={(e) => handleAssignmentChange(index, 'assignment_title', e.target.value)}
+                           className="input-field"
+                           placeholder="e.g. Guard"
+                         />
+                       </div>
+                       <div className="form-group">
+                         <label className="label">Effective From</label>
+                         <input
+                           type="date"
+                           value={assignment.effective_from}
+                           onChange={(e) => handleAssignmentChange(index, 'effective_from', e.target.value)}
+                           className="input-field"
+                         />
+                       </div>
+                       <div className="form-group">
+                         <label className="label">Effective To</label>
+                         <input
+                           type="date"
+                           value={assignment.effective_to}
+                           onChange={(e) => handleAssignmentChange(index, 'effective_to', e.target.value)}
+                           className="input-field"
+                         />
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+                 <div style={{ display: 'flex', gap: '0.5rem' }}>
+                   <button type="button" onClick={addAssignment} className="btn btn-secondary">
+                     + Add Assignment
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => {
+                       setShowAssignmentForm(false);
+                       setFormData((prev) => ({ ...prev, assignments: [] }));
+                     }}
+                     className="btn btn-secondary"
+                   >
+                     Hide Assignment Form
+                   </button>
+                 </div>
                </div>
-               <div className="form-group">
-                 <label className="label">Rate</label>
-                 <input name="rate" type="number" value={formData.rate} onChange={handleChange} className="input-field" placeholder="0.00" />
-               </div>
-               <div className="form-group">
-                 <label className="label">Title</label>
-                 <input name="assignment_title" value={formData.assignment_title} onChange={handleChange} className="input-field" placeholder="e.g. Guard" />
-               </div>
-               <div className="form-group">
-                 <label className="label">Effective From</label>
-                 <input name="effective_from" type="date" value={formData.effective_from} onChange={handleChange} className="input-field" />
-               </div>
-               <div className="form-group">
-                 <label className="label">Effective To</label>
-                 <input name="effective_to" type="date" value={formData.effective_to} onChange={handleChange} className="input-field" />
-               </div>
-             </div>
+             )}
           </div>
         )}
       </div>

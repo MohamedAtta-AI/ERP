@@ -6,11 +6,12 @@ import LoginPage from "./components/Auth/LoginPage";
 import MainDashboard from "./components/Dashboard/MainDashboard";
 import AttendancePage from "./components/Attendance/AttendancePage";
 import RegistrationPage from "./components/Registration/RegistrationPage";
-import AdminPage from "./components/Admin/AdminPage";
 import LocationsPage from "./components/Admin/LocationsPage";
 import ShiftsPage from "./components/Admin/ShiftsPage";
 import PersonsPage from "./components/Admin/PersonsPage";
 import ReportsPage from "./components/Admin/ReportsPage";
+import EmployeeManagementPage from "./components/Admin/EmployeeManagementPage";
+import OvertimeManagementPage from "./components/Admin/OvertimeManagementPage";
 import LoadingSpinner from "./components/Common/LoadingSpinner";
 import { faceDetectionService } from "./services/faceDetectionService";
 
@@ -81,7 +82,23 @@ function App() {
             path="/admin"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
-                <AdminPage />
+                <EmployeeManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+                <EmployeeManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/overtime"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+                <OvertimeManagementPage />
               </ProtectedRoute>
             }
           />

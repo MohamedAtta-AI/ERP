@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { API_BASE_URL } from "../../config/api";
+import { getAttendanceHistory, listEmployees, listOvertimeRequests } from "../../services/api";
 import logoImage from "../../assets/erp_logo.png";
 import styles from "./Dashboard.module.css";
 
@@ -14,7 +14,6 @@ const MainDashboard = () => {
     absentToday: 0,
     pendingOvertime: 0,
   });
-  const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isAdmin = user?.role === 'admin';
@@ -26,36 +25,34 @@ const MainDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch today's attendance
       const today = new Date().toISOString().split('T')[0];
-      const attendanceRes = await fetch(
-        `${API_BASE_URL}/api/v1/attendance/history?start_date=${today}&end_date=${today}&limit=100`
-      );
-      const attendance = attendanceRes.ok ? await attendanceRes.json() : [];
-      
-      // Fetch pending overtime
-      const overtimeRes = await fetch(`${API_BASE_URL}/api/v1/overtime?status=pending`);
-      const overtime = overtimeRes.ok ? await overtimeRes.json() : [];
+      const [employees, attendance, overtime] = await Promise.all([
+        listEmployees({ role: "worker", limit: 1000 }).catch(() => []),
+        getAttendanceHistory({
+          start_date: today,
+          end_date: today,
+          limit: 5000,
+        }).catch(() => []),
+        listOvertimeRequests({ status: "pending" }).catch(() => []),
+      ]);
 
-      // Calculate stats
-      const presentIds = new Set(attendance.map(a => a.person_id));
-      
+      const workerIds = new Set((employees || []).map((employee) => employee.id));
+      const totalEmployees = workerIds.size;
+      const presentIds = new Set(
+        (attendance || [])
+          .map((record) => record.person_id)
+          .filter((personId) => workerIds.has(personId))
+      );
+      const presentToday = presentIds.size;
+      const absentToday = Math.max(totalEmployees - presentToday, 0);
+
       setStats({
-        totalEmployees: presentIds.size + 5, // Placeholder - would need employees endpoint
-        presentToday: presentIds.size,
-        absentToday: 5, // Placeholder
-        pendingOvertime: overtime.length,
+        totalEmployees,
+        presentToday,
+        absentToday,
+        pendingOvertime: (overtime || []).length,
       });
 
-      // Build recent activity from attendance
-      const activity = attendance.slice(0, 5).map(a => ({
-        id: a.id,
-        type: a.check_out_at ? 'checkout' : 'checkin',
-        title: a.check_out_at ? 'Check Out' : 'Check In',
-        description: `${a.person_id} - ${a.check_out_at ? 'Left' : 'Arrived'}`,
-        time: new Date(a.check_out_at || a.check_in_at).toLocaleTimeString(),
-      }));
-      setRecentActivity(activity);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -97,16 +94,9 @@ const MainDashboard = () => {
       </header>
 
       <div className={styles.content}>
-        {/* Main Content Area */}
         <div className={styles.mainContent}>
-          {/* Welcome Section */}
           <div className={styles.welcomeSection}>
-            <h1 className={styles.welcomeTitle}>
-              Welcome, {user?.full_name?.split(' ')[0] || 'User'}
-            </h1>
-            {/* <p className={styles.welcomeSubtitle}>
-              Manage attendance and worker registration from here.
-            </p> */}
+            <h1 className={styles.welcomeTitle}>Welcome, {user?.full_name?.split(' ')[0] || 'User'}</h1>
           </div>
 
           {/* KPI Cards */}
@@ -154,7 +144,6 @@ const MainDashboard = () => {
             </div>
           </div>
 
-          {/* Modules Section */}
           <div className={styles.modulesSection}>
             <h2 className={styles.sectionTitle}>Modules</h2>
             <div className={styles.modulesGrid}>
@@ -181,134 +170,63 @@ const MainDashboard = () => {
                       <line x1="23" y1="11" x2="17" y2="11"></line>
                     </svg>
                   </div>
-                  <span className={styles.moduleName}>Register Worker</span>
-                  <span className={styles.moduleDescription}>Add new workers</span>
+                  <span className={styles.moduleName}>
+                    {isAdmin ? 'Register Employee' : 'Register Worker'}
+                  </span>
+                  <span className={styles.moduleDescription}>
+                    {isAdmin ? 'Add workers and supervisors' : 'Add new workers'}
+                  </span>
                 </Link>
               )}
 
-              {isAdmin && (
-                <Link to="/admin" className={styles.moduleCard}>
-                  <div className={styles.moduleIcon} style={{ color: "#8B5CF6" }}>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="3"></circle>
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                    </svg>
-                  </div>
-                  <span className={styles.moduleName}>Admin Panel</span>
-                  <span className={styles.moduleDescription}>Manage system settings</span>
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className={styles.sidebar}>
-          {/* Quick Actions */}
-          <div className={styles.quickActionsSection}>
-            <h2 className={styles.sectionTitle}>Quick Actions</h2>
-            <div className={styles.quickActionsGrid}>
-              <Link
-                to="/attendance"
-                className={styles.quickActionBtn}
-                style={{ backgroundColor: "#10B981", color: "white" }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="8.5" cy="7" r="4"></circle>
-                  <path d="M20 8v6"></path>
-                  <path d="M23 11h-6"></path>
-                </svg>
-                <span>Take Attendance</span>
+              <Link to="/overtime" className={styles.moduleCard}>
+                <div className={styles.moduleIcon} style={{ color: "#F59E0B" }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                </div>
+                <span className={styles.moduleName}>Overtime Management</span>
+                <span className={styles.moduleDescription}>Create and manage overtime requests</span>
               </Link>
 
-              {canRegister && (
-                <Link
-                  to="/register"
-                  className={styles.quickActionBtn}
-                  style={{ backgroundColor: "#3B82F6", color: "white" }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="8.5" cy="7" r="4"></circle>
-                    <line x1="20" y1="8" x2="20" y2="14"></line>
-                    <line x1="23" y1="11" x2="17" y2="11"></line>
+              <Link to="/employees" className={styles.moduleCard}>
+                <div className={styles.moduleIcon} style={{ color: "#8B5CF6" }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                   </svg>
-                  <span>Register Worker</span>
+                </div>
+                <span className={styles.moduleName}>Employee Management</span>
+                <span className={styles.moduleDescription}>View, edit, assign and delete employees</span>
+              </Link>
+
+              {isAdmin && (
+                <Link to="/admin/locations" className={styles.moduleCard}>
+                  <div className={styles.moduleIcon} style={{ color: "#0EA5E9" }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"></path>
+                      <circle cx="12" cy="9" r="2.5"></circle>
+                    </svg>
+                  </div>
+                  <span className={styles.moduleName}>Location Management</span>
+                  <span className={styles.moduleDescription}>Manage sites and addresses</span>
                 </Link>
               )}
 
               {isAdmin && (
-                <button
-                  className={styles.quickActionBtn}
-                  style={{ backgroundColor: "#6366F1", color: "white" }}
-                  disabled
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="12" y1="1" x2="12" y2="23"></line>
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-                  </svg>
-                  <span>Run Payroll</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div className={styles.recentActivitySection}>
-            <h2 className={styles.sectionTitle}>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                style={{ display: "inline", marginRight: "8px" }}
-              >
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-              Recent Activity
-            </h2>
-            <div className={styles.activityList}>
-              {recentActivity.length > 0 ? (
-                recentActivity.map((activity) => (
-                  <div key={activity.id} className={styles.activityItem}>
-                    <div
-                      className={styles.activityIcon}
-                      style={{ backgroundColor: activity.type === 'checkin' ? "#10B981" : "#F59E0B" }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                        {activity.type === 'checkin' ? (
-                          <>
-                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="8.5" cy="7" r="4"></circle>
-                            <path d="M20 8v6"></path>
-                            <path d="M23 11h-6"></path>
-                          </>
-                        ) : (
-                          <>
-                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="8.5" cy="7" r="4"></circle>
-                            <line x1="23" y1="11" x2="17" y2="11"></line>
-                          </>
-                        )}
-                      </svg>
-                    </div>
-                    <div className={styles.activityContent}>
-                      <p className={styles.activityTitle}>{activity.title}</p>
-                      <p className={styles.activityDescription}>{activity.description}</p>
-                      <span className={styles.activityTime}>{activity.time}</span>
-                    </div>
+                <Link to="/admin/shifts" className={styles.moduleCard}>
+                  <div className={styles.moduleIcon} style={{ color: "#06B6D4" }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
                   </div>
-                ))
-              ) : (
-                <div className={styles.activityItem}>
-                  <div className={styles.activityContent}>
-                    <p className={styles.activityDescription}>No recent activity</p>
-                  </div>
-                </div>
+                  <span className={styles.moduleName}>Shift Management</span>
+                  <span className={styles.moduleDescription}>Manage shifts and times</span>
+                </Link>
               )}
             </div>
           </div>
@@ -319,4 +237,3 @@ const MainDashboard = () => {
 };
 
 export default MainDashboard;
-

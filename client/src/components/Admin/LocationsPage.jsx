@@ -1,192 +1,177 @@
-import React, { useState, useEffect } from 'react';
-import { listLocations, createLocation, updateLocation, deleteLocation } from '../../services/api';
-import LoadingSpinner from '../Common/LoadingSpinner';
-import ErrorMessage from '../Common/ErrorMessage';
-import styles from './AdminPage.module.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { createLocation, deleteLocation, listLocations, updateLocation } from "../../services/api";
+import ErrorMessage from "../Common/ErrorMessage";
+import ModuleHeader from "../Common/ModuleHeader";
+import styles from "./ManagementUI.module.css";
+
+const initialForm = { name: "", street_address: "", city: "", region: "" };
+const DATA_EVENT = "erp:data-changed";
 
 const LocationsPage = () => {
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingLocation, setEditingLocation] = useState(null);
-  
-  // Model-aligned form data
-  const [formData, setFormData] = useState({
-    name: '',
-    street_address: '',
-    region: '',
-    city: '',
-  });
-
-  useEffect(() => {
-    loadLocations();
-  }, []);
+  const [success, setSuccess] = useState(null);
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(initialForm);
 
   const loadLocations = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const data = await listLocations(false);
-      setLocations(data);
-      setError(null);
-    } catch (err) {
-      setError(err.message);
+      setLocations(data || []);
+    } catch (e) {
+      setError(e.message || "Failed to load locations");
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadLocations();
+  }, []);
+
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(null), 2500);
+    return () => clearTimeout(t);
+  }, [success]);
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return locations;
+    return locations.filter((location) =>
+      [location.name, location.street_address, location.city, location.region]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(term))
+    );
+  }, [locations, query]);
+
+  const handleEdit = (location) => {
+    setEditing(location);
+    setForm({
+      name: location.name || "",
+      street_address: location.street_address || "",
+      city: location.city || "",
+      region: location.region || "",
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingLocation) {
-        await updateLocation(editingLocation.id, formData);
+      if (editing) {
+        await updateLocation(editing.id, form);
+        setSuccess("Location updated");
       } else {
-        await createLocation(formData);
+        await createLocation(form);
+        setSuccess("Location created");
       }
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "site" } }));
+      setForm(initialForm);
+      setEditing(null);
       await loadLocations();
-      setShowForm(false);
-      setEditingLocation(null);
-      resetForm();
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message || "Failed to save location");
     }
-  };
-
-  const resetForm = () => {
-    setFormData({ name: '', street_address: '', region: '', city: '' });
-  };
-
-  const handleEdit = (location) => {
-    setEditingLocation(location);
-    setFormData({
-      name: location.name,
-      street_address: location.street_address || '',
-      region: location.region || '',
-      city: location.city || '',
-    });
-    setShowForm(true);
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this location?')) return;
+    if (!window.confirm("Delete this location?")) return;
     try {
       await deleteLocation(id);
+      setSuccess("Location deleted");
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "site" } }));
       await loadLocations();
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message || "Failed to delete location");
     }
   };
 
-  if (loading) return <LoadingSpinner />;
-
   return (
-    <div className={styles.pageContainer}>
-      <div className={styles.pageHeader}>
-        <h1 className="heading-xl">Locations Management</h1>
-        <button 
-          onClick={() => { setShowForm(true); setEditingLocation(null); resetForm(); }} 
-          className="btn btn-primary"
-        >
-          + Add Location
-        </button>
-      </div>
+    <div className={styles.page}>
+      <ModuleHeader title="Location Management" />
 
       {error && <ErrorMessage message={error} />}
+      {success && <div className={styles.success}>{success}</div>}
 
-      {showForm && (
-        <div className="modal-overlay">
-          <div className="glass-panel modal-content">
-            <h2 className="section-title">{editingLocation ? 'Edit Location' : 'New Location'}</h2>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label className="label">Name *</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-              
-              <div className="form-group">
-                <label className="label">Street Address</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={formData.street_address}
-                  onChange={(e) => setFormData({ ...formData, street_address: e.target.value })}
-                />
-              </div>
-
-              <div className="form-grid" style={{ marginBottom: 0 }}>
-                <div className="form-group">
-                  <label className="label">City</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="label">Region</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={formData.region}
-                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                  />
-                </div>
-              </div>
-              
-              <div className={styles.formActions} style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                <button type="button" onClick={() => { setShowForm(false); setEditingLocation(null); }} className="btn btn-secondary">
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">Save Location</button>
-              </div>
-            </form>
+      <div className={styles.layout}>
+        <div>
+          <div className={styles.toolbar} style={{ gridTemplateColumns: "2fr 140px" }}>
+            <input className="input-field" placeholder="Search name, address, city, region..." value={query} onChange={(e) => setQuery(e.target.value)} />
+            <button className="btn btn-secondary" onClick={loadLocations}>Refresh</button>
+          </div>
+          <div className={styles.statRow}>
+            <div className={styles.statCard}><span className={styles.statLabel}>Visible Locations</span><span className={styles.statValue}>{filtered.length}</span></div>
+          </div>
+          <div className={styles.tableWrap}>
+            {loading ? (
+              <div className={styles.empty}>Loading locations...</div>
+            ) : filtered.length === 0 ? (
+              <div className={styles.empty}>No locations found.</div>
+            ) : (
+              <table className={styles.table} style={{ minWidth: "900px" }}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Street Address</th>
+                    <th>City</th>
+                    <th>Region</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((location) => (
+                    <tr key={location.id}>
+                      <td>{location.name}</td>
+                      <td>{location.street_address || "-"}</td>
+                      <td>{location.city || "-"}</td>
+                      <td>{location.region || "-"}</td>
+                      <td>
+                        <div className={styles.rowActions}>
+                          <button className="btn btn-secondary" onClick={() => handleEdit(location)}>Edit</button>
+                          <button className="btn btn-danger" onClick={() => handleDelete(location.id)}>Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-      )}
 
-      <div className="glass-panel" style={{ padding: '2rem', marginTop: '1.5rem' }}>
-        <table className={styles.dataTable} style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)' }}>
-              <th style={{ padding: '1rem' }}>Name</th>
-              <th style={{ padding: '1rem' }}>Address</th>
-              <th style={{ padding: '1rem' }}>City/Region</th>
-              <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {locations.length === 0 ? (
-              <tr>
-                <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)' }}>No locations found.</td>
-              </tr>
-            ) : (
-              locations.map((location) => (
-                <tr key={location.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <td style={{ padding: '1rem', fontWeight: 500 }}>{location.name}</td>
-                  <td style={{ padding: '1rem' }}>{location.street_address || '-'}</td>
-                  <td style={{ padding: '1rem' }}>
-                    {location.city && location.region ? `${location.city}, ${location.region}` : 
-                     location.city || location.region || '-'}
-                  </td>
-                  <td style={{ padding: '1rem', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button onClick={() => handleEdit(location)} className="btn btn-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Edit</button>
-                      <button onClick={() => handleDelete(location.id)} className="btn btn-danger" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <div className={styles.panel}>
+          <h3 className={styles.panelTitle}>{editing ? "Edit Location" : "Create Location"}</h3>
+          <form onSubmit={handleSubmit} className={styles.formGridTight}>
+            <div className="form-group">
+              <label className="label">Name</label>
+              <input className="input-field" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="label">Street Address</label>
+              <input className="input-field" value={form.street_address} onChange={(e) => setForm((p) => ({ ...p, street_address: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="label">City</label>
+              <input className="input-field" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="label">Region</label>
+              <input className="input-field" value={form.region} onChange={(e) => setForm((p) => ({ ...p, region: e.target.value }))} />
+            </div>
+            <div className={styles.rowActions}>
+              <button className="btn btn-primary" type="submit">{editing ? "Update" : "Create"}</button>
+              {editing && (
+                <button type="button" className="btn btn-secondary" onClick={() => { setEditing(null); setForm(initialForm); }}>
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

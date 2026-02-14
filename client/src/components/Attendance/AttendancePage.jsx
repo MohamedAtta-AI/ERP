@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AttendanceCheck from "./AttendanceCheck";
+import AttendanceReports from "./AttendanceReports";
+import ModuleHeader from "../Common/ModuleHeader";
 import styles from "./AttendancePage.module.css";
 
 /**
@@ -11,11 +13,33 @@ import styles from "./AttendancePage.module.css";
  */
 const AttendancePage = () => {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("capture");
   
-  // Go directly to attendance mode - no menu needed since registration is separate
   return (
     <div className={styles.page}>
-      <AttendanceCheck onBack={() => navigate('/dashboard')} />
+      <ModuleHeader title="Take Attendance" className={styles.header} />
+      <div className={styles.tabs}>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === "capture" ? styles.tabActive : ""}`}
+          onClick={() => setActiveTab("capture")}
+        >
+          Live Capture
+        </button>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === "reports" ? styles.tabActive : ""}`}
+          onClick={() => setActiveTab("reports")}
+        >
+          Attendance Reports
+        </button>
+      </div>
+
+      {activeTab === "capture" ? (
+        <AttendanceCheck onBack={() => navigate("/dashboard")} />
+      ) : (
+        <AttendanceReports />
+      )}
     </div>
   );
 };

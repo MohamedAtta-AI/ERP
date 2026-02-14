@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import PersonRegistrationWizard from "./PersonRegistrationWizard";
 import FaceCapture from "../FaceCapture/FaceCapture";
 import { enrollFace } from "../../services/api";
 import ErrorMessage from "../Common/ErrorMessage";
+import ModuleHeader from "../Common/ModuleHeader";
 import styles from "./RegistrationPage.module.css";
 
 /**
@@ -85,22 +86,7 @@ const RegistrationPage = () => {
 
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <div className={styles.header}>
-        <Link to="/dashboard" className={styles.backButton}>
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </Link>
-      </div>
+      <ModuleHeader title="Employee Registration" className={styles.header} />
 
       {/* Form Mode */}
       {mode === "form" && (
@@ -194,4 +180,3 @@ const RegistrationPage = () => {
 };
 
 export default RegistrationPage;
-

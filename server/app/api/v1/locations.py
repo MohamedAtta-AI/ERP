@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from server.db import get_session
 from server.db.models import Site
 from server.app.schemas.location import SiteCreate, SiteRead, SiteUpdate
+from server.app.dependencies import require_admin, require_supervisor_or_admin
 
 router = APIRouter()
 
@@ -14,6 +15,7 @@ router = APIRouter()
 async def list_locations(
     active_only: bool = True, # Ignored for now as Site model has no active field, keeping sig for compat
     session: Session = Depends(get_session),
+    current_user=Depends(require_supervisor_or_admin),
 ):
     # If model had active field:
     # stmt = select(Site).where(Site.active == True) if active_only else select(Site)
@@ -24,6 +26,7 @@ async def list_locations(
 async def create_location(
     site_in: SiteCreate,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     site = Site(**site_in.model_dump())
     session.add(site)
@@ -36,6 +39,7 @@ async def update_location(
     site_id: UUID,
     site_in: SiteUpdate,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     site = session.get(Site, site_id)
     if not site:
@@ -53,6 +57,7 @@ async def update_location(
 async def delete_location(
     site_id: UUID,
     session: Session = Depends(get_session),
+    current_user=Depends(require_admin),
 ):
     site = session.get(Site, site_id)
     if not site:

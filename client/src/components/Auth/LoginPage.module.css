@@ -130,6 +130,40 @@
   font-size: 0.875rem;
 }
 
+.passwordSetupCard {
+  border: 1px solid #d1fae5;
+  background: #f0fdf4;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.passwordSetupIntro {
+  margin-bottom: 1rem;
+  color: #14532d;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.passwordSetupIntro p {
+  margin: 0.25rem 0;
+}
+
+.passwordSetupIntro code {
+  background: #dcfce7;
+  color: #166534;
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.82rem;
+}
+
+.passwordRules {
+  margin: -0.5rem 0 0 0;
+  padding-left: 1rem;
+  color: #166534;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .footer {
   margin-top: 2rem;
   text-align: center;
@@ -160,4 +194,3 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
-

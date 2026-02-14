@@ -1,5 +1,7 @@
 import { API_BASE_URL, API_ENDPOINTS } from "../config/api";
 
+const AUTH_UNAUTHORIZED_EVENT = "auth:unauthorized";
+
 /**
  * Get access token from localStorage
  */
@@ -61,7 +63,9 @@ class ApiClient {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
-          // Don't redirect here - let the component handle it
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+          }
         }
         throw new Error(formatErrorDetail(data.detail, data.message || "An error occurred"));
       }
@@ -111,6 +115,9 @@ class ApiClient {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+          }
         }
         throw new Error(formatErrorDetail(data.detail, data.message || "Upload failed"));
       }
@@ -119,6 +126,45 @@ class ApiClient {
     } catch (error) {
       throw error;
     }
+  }
+
+  async requestBlob(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = getAccessToken();
+    const config = {
+      ...options,
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+        ...options.headers,
+      },
+    };
+
+    const response = await fetch(url, config);
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        localStorage.removeItem("user");
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+        }
+      }
+      let detail = "Failed to download file";
+      try {
+        const data = await response.json();
+        detail = formatErrorDetail(data.detail, detail);
+      } catch {
+        const text = await response.text();
+        if (text) detail = text;
+      }
+      throw new Error(detail);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get("content-disposition") || "";
+    const nameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+    const filename = nameMatch?.[1] || "download";
+    return { blob, filename };
   }
 }
 
@@ -144,6 +190,16 @@ export const login = async (credentials) => {
       throw new Error(data.detail || "Login failed");
   }
   return data;
+};
+
+/**
+ * Change current user's password
+ */
+export const changePassword = async ({ current_password, new_password }) => {
+  return apiClient.request(API_ENDPOINTS.CHANGE_PASSWORD, {
+    method: "POST",
+    body: JSON.stringify({ current_password, new_password }),
+  });
 };
 
 // ============================================================
@@ -172,6 +228,25 @@ export const enrollFace = async (employeeId, imageFile) => {
  */
 export const getEmployee = async (employeeId) => {
   return apiClient.request(API_ENDPOINTS.GET_EMPLOYEE(employeeId));
+};
+
+/**
+ * Update employee details
+ */
+export const updateEmployee = async (employeeId, employeeData) => {
+  return apiClient.request(API_ENDPOINTS.UPDATE_EMPLOYEE(employeeId), {
+    method: "PATCH",
+    body: JSON.stringify(employeeData),
+  });
+};
+
+/**
+ * Soft-delete employee
+ */
+export const deleteEmployee = async (employeeId) => {
+  return apiClient.request(API_ENDPOINTS.DELETE_EMPLOYEE(employeeId), {
+    method: "DELETE",
+  });
 };
 
 /**
@@ -217,6 +292,29 @@ export const uploadDocument = async (employeeId, file, docType) => {
   return apiClient.uploadFile(API_ENDPOINTS.UPLOAD_DOCUMENT(employeeId), file, {
     type: docType,
   });
+};
+
+/**
+ * List employee documents
+ */
+export const listEmployeeDocuments = async (employeeId) => {
+  return apiClient.request(API_ENDPOINTS.LIST_DOCUMENTS(employeeId));
+};
+
+/**
+ * Delete employee document
+ */
+export const deleteEmployeeDocument = async (employeeId, docId) => {
+  return apiClient.request(API_ENDPOINTS.DELETE_DOCUMENT(employeeId, docId), {
+    method: "DELETE",
+  });
+};
+
+/**
+ * Download employee document
+ */
+export const downloadEmployeeDocument = async (employeeId, docId) => {
+  return apiClient.requestBlob(API_ENDPOINTS.DOWNLOAD_DOCUMENT(employeeId, docId));
 };
 
 // ============================================================
@@ -396,6 +494,19 @@ export const getAttendanceHistory = async (params = {}) => {
 };
 
 /**
+ * Import attendance rows
+ */
+export const importAttendanceRows = async (rows, replaceExisting = false) => {
+  return apiClient.request(API_ENDPOINTS.IMPORT_ATTENDANCE, {
+    method: "POST",
+    body: JSON.stringify({
+      rows,
+      replace_existing: replaceExisting,
+    }),
+  });
+};
+
+/**
  * Reconcile attendance for a date (mark absent, create overtime requests)
  */
 export const reconcileAttendance = async (targetDate = null) => {
@@ -455,6 +566,11 @@ export const rejectOvertime = async (overtimeId, reason = "") => {
   });
 };
 
-
-
-
+/**
+ * Delete overtime request
+ */
+export const deleteOvertimeRequest = async (overtimeId) => {
+  return apiClient.request(API_ENDPOINTS.OVERTIME_REQUEST(overtimeId), {
+    method: "DELETE",
+  });
+};

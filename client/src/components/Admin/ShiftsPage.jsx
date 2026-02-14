@@ -1,186 +1,183 @@
-import React, { useState, useEffect } from 'react';
-import { listShifts, createShift, updateShift, deleteShift } from '../../services/api';
-import LoadingSpinner from '../Common/LoadingSpinner';
-import ErrorMessage from '../Common/ErrorMessage';
-import styles from './AdminPage.module.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { createShift, deleteShift, listShifts, updateShift } from "../../services/api";
+import ErrorMessage from "../Common/ErrorMessage";
+import ModuleHeader from "../Common/ModuleHeader";
+import styles from "./ManagementUI.module.css";
+
+const initialForm = { name: "", start_time: "08:00", end_time: "17:00" };
+const DATA_EVENT = "erp:data-changed";
+
+const normalizeTime = (value) => (value && value.length === 5 ? `${value}:00` : value);
 
 const ShiftsPage = () => {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingShift, setEditingShift] = useState(null);
-  
-  // Model-aligned form data: name, start_time, end_time
-  const [formData, setFormData] = useState({
-    name: '',
-    start_time: '',
-    end_time: '',
-  });
-
-  useEffect(() => {
-    loadShifts();
-  }, []);
+  const [success, setSuccess] = useState(null);
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(initialForm);
 
   const loadShifts = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const data = await listShifts(false);
-      setShifts(data);
-      setError(null);
-    } catch (err) {
-      setError(err.message);
+      setShifts(data || []);
+    } catch (e) {
+      setError(e.message || "Failed to load shifts");
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadShifts();
+  }, []);
+
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(null), 2500);
+    return () => clearTimeout(t);
+  }, [success]);
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return shifts;
+    return shifts.filter((shift) =>
+      [shift.name, shift.start_time, shift.end_time]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(term))
+    );
+  }, [shifts, query]);
+
+  const handleEdit = (shift) => {
+    setEditing(shift);
+    setForm({
+      name: shift.name || "",
+      start_time: shift.start_time ? shift.start_time.substring(0, 5) : "08:00",
+      end_time: shift.end_time ? shift.end_time.substring(0, 5) : "17:00",
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Ensure time format is HH:MM:SS or HH:MM
       const payload = {
-          ...formData,
-          // Append seconds if missing, assuming input type="time" gives HH:MM
-          start_time: formData.start_time.length === 5 ? `${formData.start_time}:00` : formData.start_time,
-          end_time: formData.end_time.length === 5 ? `${formData.end_time}:00` : formData.end_time,
+        name: form.name,
+        start_time: normalizeTime(form.start_time),
+        end_time: normalizeTime(form.end_time),
       };
-
-      if (editingShift) {
-        await updateShift(editingShift.id, payload);
+      if (editing) {
+        await updateShift(editing.id, payload);
+        setSuccess("Shift updated");
       } else {
         await createShift(payload);
+        setSuccess("Shift created");
       }
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "shift" } }));
+      setEditing(null);
+      setForm(initialForm);
       await loadShifts();
-      setShowForm(false);
-      setEditingShift(null);
-      resetForm();
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message || "Failed to save shift");
     }
-  };
-
-  const resetForm = () => {
-    setFormData({ name: '', start_time: '', end_time: '' });
-  };
-
-  const handleEdit = (shift) => {
-    setEditingShift(shift);
-    setFormData({
-      name: shift.name,
-      start_time: shift.start_time ? shift.start_time.substring(0, 5) : '', // Slice to HH:MM for input
-      end_time: shift.end_time ? shift.end_time.substring(0, 5) : '',
-    });
-    setShowForm(true);
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this shift?')) return;
+    if (!window.confirm("Delete this shift?")) return;
     try {
       await deleteShift(id);
+      setSuccess("Shift deleted");
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "shift" } }));
       await loadShifts();
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message || "Failed to delete shift");
     }
   };
 
-  if (loading) return <LoadingSpinner />;
-
   return (
-    <div className={styles.pageContainer}>
-      <div className={styles.pageHeader}>
-        <h1 className="heading-xl">Shifts Management</h1>
-        <button 
-            onClick={() => { setShowForm(true); setEditingShift(null); resetForm(); }} 
-            className="btn btn-primary"
-        >
-          + Add Shift
-        </button>
-      </div>
+    <div className={styles.page}>
+      <ModuleHeader title="Shift Management" />
 
       {error && <ErrorMessage message={error} />}
+      {success && <div className={styles.success}>{success}</div>}
 
-      {showForm && (
-        <div className="modal-overlay">
-          <div className="glass-panel modal-content">
-            <h2 className="section-title">{editingShift ? 'Edit Shift' : 'New Shift'}</h2>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label className="label">Name *</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-grid" style={{ marginBottom: 0 }}>
-                <div className="form-group">
-                  <label className="label">Start Time *</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={formData.start_time}
-                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="label">End Time *</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={formData.end_time}
-                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-              
-              <div className={styles.formActions} style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                <button type="button" onClick={() => { setShowForm(false); setEditingShift(null); }} className="btn btn-secondary">
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">Save Shift</button>
-              </div>
-            </form>
+      <div className={styles.layout}>
+        <div>
+          <div className={styles.toolbar} style={{ gridTemplateColumns: "2fr 140px" }}>
+            <input className="input-field" placeholder="Search shift name or time..." value={query} onChange={(e) => setQuery(e.target.value)} />
+            <button className="btn btn-secondary" onClick={loadShifts}>Refresh</button>
+          </div>
+          <div className={styles.statRow}>
+            <div className={styles.statCard}><span className={styles.statLabel}>Visible Shifts</span><span className={styles.statValue}>{filtered.length}</span></div>
+          </div>
+          <div className={styles.tableWrap}>
+            {loading ? (
+              <div className={styles.empty}>Loading shifts...</div>
+            ) : filtered.length === 0 ? (
+              <div className={styles.empty}>No shifts found.</div>
+            ) : (
+              <table className={styles.table} style={{ minWidth: "760px" }}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Duration</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((shift) => {
+                    const start = shift.start_time?.substring(0, 5) || "--:--";
+                    const end = shift.end_time?.substring(0, 5) || "--:--";
+                    return (
+                      <tr key={shift.id}>
+                        <td>{shift.name}</td>
+                        <td>{start}</td>
+                        <td>{end}</td>
+                        <td className={styles.muted}>{start} - {end}</td>
+                        <td>
+                          <div className={styles.rowActions}>
+                            <button className="btn btn-secondary" onClick={() => handleEdit(shift)}>Edit</button>
+                            <button className="btn btn-danger" onClick={() => handleDelete(shift.id)}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-      )}
 
-      <div className="glass-panel" style={{ padding: '2rem', marginTop: '1.5rem' }}>
-        <table className={styles.dataTable} style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-border)' }}>
-              <th style={{ padding: '1rem' }}>Name</th>
-              <th style={{ padding: '1rem' }}>Start Time</th>
-              <th style={{ padding: '1rem' }}>End Time</th>
-              <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shifts.length === 0 ? (
-                <tr>
-                    <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)' }}>No shifts found.</td>
-                </tr>
-            ) : (
-                shifts.map((shift) => (
-                <tr key={shift.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td style={{ padding: '1rem', fontWeight: 500 }}>{shift.name}</td>
-                    <td style={{ padding: '1rem' }}>{shift.start_time}</td>
-                    <td style={{ padding: '1rem' }}>{shift.end_time}</td>
-                    <td style={{ padding: '1rem', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                            <button onClick={() => handleEdit(shift)} className="btn btn-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Edit</button>
-                            <button onClick={() => handleDelete(shift.id)} className="btn btn-danger" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}>Delete</button>
-                        </div>
-                    </td>
-                </tr>
-                ))
-            )}
-          </tbody>
-        </table>
+        <div className={styles.panel}>
+          <h3 className={styles.panelTitle}>{editing ? "Edit Shift" : "Create Shift"}</h3>
+          <form onSubmit={handleSubmit} className={styles.formGridTight}>
+            <div className="form-group">
+              <label className="label">Shift Name</label>
+              <input className="input-field" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="label">Start Time</label>
+              <input type="time" className="input-field" value={form.start_time} onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="label">End Time</label>
+              <input type="time" className="input-field" value={form.end_time} onChange={(e) => setForm((p) => ({ ...p, end_time: e.target.value }))} required />
+            </div>
+            <div className={styles.rowActions}>
+              <button className="btn btn-primary" type="submit">{editing ? "Update" : "Create"}</button>
+              {editing && (
+                <button type="button" className="btn btn-secondary" onClick={() => { setEditing(null); setForm(initialForm); }}>
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

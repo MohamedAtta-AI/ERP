@@ -1,16 +1,19 @@
 from typing import List, Optional
-from uuid import uuid4
+from uuid import uuid4, UUID
 from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlmodel import Session, select
+from fastapi.responses import FileResponse
+from sqlmodel import Session, select, or_
 
 from server.db import get_session
 from server.db.models import Person, PaymentInfo, Role, PersonStatus, Document, DocType
 from server.app.schemas.person import (
     PersonCreate,
     PersonRead,
+    PersonManagementRead,
+    DocumentRead,
     PersonUpdate,
     PaymentInfoCreate,
     PaymentInfoRead,
@@ -24,8 +27,45 @@ from server.app.services.password_service import hash_password
 from server.app.services.person_id_generator import generate_person_id
 from server.app.services.face_recognition import FaceRecognitionService
 from server.db.models import FaceEmbedding
+from server.config import config
 
 router = APIRouter()
+
+
+def _can_access_person(current_user: Person, target_person: Person) -> bool:
+    if current_user.role == Role.ADMIN:
+        return True
+    if current_user.id == target_person.id:
+        return True
+    if current_user.role == Role.SUPERVISOR and target_person.role == Role.WORKER:
+        return True
+    return target_person.supervisor_id == current_user.id
+
+
+def _to_person_management_read(session: Session, person: Person) -> PersonManagementRead:
+    base = PersonRead.model_validate(person).model_dump()
+    supervisor_name = None
+    if person.supervisor_id:
+        supervisor = session.get(Person, person.supervisor_id)
+        supervisor_name = supervisor.full_name if supervisor else None
+    payment = session.get(PaymentInfo, person.id)
+    face_count = len(
+        session.exec(select(FaceEmbedding.id).where(FaceEmbedding.person_id == person.id)).all()
+    )
+    return PersonManagementRead(
+        **base,
+        supervisor_name=supervisor_name,
+        payment_method=payment.payment_method if payment else None,
+        bank_name=payment.bank_name if payment else None,
+        account_holder=payment.account_holder if payment else None,
+        account_number=payment.account_number if payment else None,
+        iban=payment.iban if payment else None,
+        branch_code=payment.branch_code if payment else None,
+        wallet_provider=payment.wallet_provider if payment else None,
+        wallet_number=payment.wallet_number if payment else None,
+        has_face_registered=face_count > 0,
+        face_embeddings_count=face_count,
+    )
 
 
 @router.post("/", response_model=PersonRead)
@@ -54,8 +94,13 @@ async def register_person(
     # Generate ID
     new_id = generate_person_id(lambda id: session.get(Person, id) is not None)
 
-    # Password: use provided or default
-    raw_pwd = person_in.password_hash or "ChangeMe123!"
+    # Password policy:
+    # - New supervisors always start with a controlled default password.
+    # - Other roles can provide a custom password or fallback to a generic default.
+    if person_in.role == Role.SUPERVISOR:
+        raw_pwd = config.SUPERVISOR_DEFAULT_PASSWORD
+    else:
+        raw_pwd = person_in.password_hash or "ChangeMe123!"
     pwd_hash = hash_password(raw_pwd)
 
     # Set hire_date to today if not provided
@@ -77,22 +122,33 @@ async def register_person(
     return person
 
 
-@router.get("/", response_model=List[PersonRead])
+@router.get("/", response_model=List[PersonManagementRead])
 async def list_persons(
     role: Optional[Role] = None,
     status: Optional[PersonStatus] = None,
-    limit: int = 100,
+    limit: Optional[int] = None,
     session: Session = Depends(get_session),
-    # current_user: Person = Depends(require_auth)
+    current_user: Person = Depends(require_supervisor_or_admin),
 ):
     stmt = select(Person)
+
+    if current_user.role == Role.SUPERVISOR:
+        stmt = stmt.where(
+            or_(
+                Person.id == current_user.id,
+                Person.role == Role.WORKER,
+            )
+        )
+
     if role:
         stmt = stmt.where(Person.role == role)
     if status:
         stmt = stmt.where(Person.status == status)
 
-    stmt = stmt.limit(limit)
-    return session.exec(stmt).all()
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    persons = session.exec(stmt).all()
+    return [_to_person_management_read(session, person) for person in persons]
 
 
 @router.get("/check-identity")
@@ -100,6 +156,7 @@ async def check_identity(
     national_id: Optional[str] = None,
     passport: Optional[str] = None,
     session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
 ):
     """Check if national ID or passport is already registered. Used for live form validation."""
     result = {"nationalID_taken": False, "passport_taken": False}
@@ -116,15 +173,18 @@ async def check_identity(
     return result
 
 
-@router.get("/{person_id}", response_model=PersonRead)
+@router.get("/{person_id}", response_model=PersonManagementRead)
 async def get_person(
     person_id: str,
     session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
 ):
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
-    return person
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only view themselves or their workers")
+    return _to_person_management_read(session, person)
 
 
 @router.patch("/{person_id}", response_model=PersonRead)
@@ -139,7 +199,13 @@ async def update_person(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
 
-    if current_user.role == Role.SUPERVISOR and person.role != Role.WORKER:
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supervisors can only update workers or themselves.",
+        )
+
+    if current_user.role == Role.SUPERVISOR and person.id != current_user.id and person.role != Role.WORKER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Supervisors can only update workers.",
@@ -176,10 +242,13 @@ async def save_payment_info(
     person_id: str,
     info_in: PaymentInfoCreate,
     session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
 ):
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only manage payment info for themselves or their workers")
 
     # Check if exists, update or create
     # Since model has person_id as PK, we check by that.
@@ -247,6 +316,8 @@ async def upload_document(
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only manage documents for themselves or their workers")
 
     # Validate document type
     try:
@@ -281,3 +352,89 @@ async def upload_document(
         "url": str(file_path),
         "message": "Document uploaded successfully",
     }
+
+
+@router.get("/{person_id}/documents", response_model=List[DocumentRead])
+async def list_documents(
+    person_id: str,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
+):
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only view documents for themselves or their workers")
+
+    docs = session.exec(
+        select(Document).where(Document.person_id == person_id).order_by(Document.uploaded_at.desc())
+    ).all()
+    return [
+        DocumentRead(
+            id=d.id,
+            type=d.type.value if hasattr(d.type, "value") else str(d.type),
+            url=d.url,
+            file_name=Path(d.url).name if d.url else None,
+            uploaded_at=d.uploaded_at,
+        )
+        for d in docs
+    ]
+
+
+@router.get("/{person_id}/documents/{doc_id}/download")
+async def download_document(
+    person_id: str,
+    doc_id: str,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
+):
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only view documents for themselves or their workers")
+
+    try:
+        document_uuid = UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    document = session.get(Document, document_uuid)
+    if not document or document.person_id != person_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = Path(document.url)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found on server")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type="application/octet-stream",
+    )
+
+
+@router.delete("/{person_id}/documents/{doc_id}")
+async def delete_document(
+    person_id: str,
+    doc_id: str,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
+):
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if current_user.role == Role.SUPERVISOR and not _can_access_person(current_user, person):
+        raise HTTPException(status_code=403, detail="Supervisors can only delete documents for themselves or their workers")
+
+    try:
+        document_uuid = UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    document = session.get(Document, document_uuid)
+    if not document or document.person_id != person_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    session.delete(document)
+    session.commit()
+    return {"ok": True}

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
@@ -19,6 +19,14 @@ class PaymentInfoCreate(PaymentInfoBase):
 
 class PaymentInfoRead(PaymentInfoBase):
     person_id: str
+
+
+class DocumentRead(BaseModel):
+    id: UUID
+    type: str
+    url: str
+    file_name: Optional[str] = None
+    uploaded_at: Optional[datetime] = None
 
 class PersonBase(BaseModel):
     full_name: str
@@ -59,3 +67,17 @@ class PersonRead(PersonBase):
     
     class Config:
         from_attributes = True
+
+
+class PersonManagementRead(PersonRead):
+    supervisor_name: Optional[str] = None
+    payment_method: Optional[PaymentMethod] = None
+    bank_name: Optional[str] = None
+    account_holder: Optional[str] = None
+    account_number: Optional[str] = None
+    iban: Optional[str] = None
+    branch_code: Optional[str] = None
+    wallet_provider: Optional[WalletProvider] = None
+    wallet_number: Optional[str] = None
+    has_face_registered: bool = False
+    face_embeddings_count: int = 0

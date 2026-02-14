@@ -273,7 +273,7 @@ const AdminPage = () => {
                     ➕ Register New Employee
                   </Link>
                   <Link to="/attendance" className={styles.actionBtn}>
-                    📋 Take Attendance
+                    � Take Attendance
                   </Link>
                 </div>
               </div>
