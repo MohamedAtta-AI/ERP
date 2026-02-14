@@ -7,12 +7,12 @@ const QUALITY_THRESHOLDS = {
   BRIGHTNESS_MIN: 60,
   BRIGHTNESS_MAX: 200,
   SHARPNESS_MIN: 1.5,
-  FACE_SIZE_MIN: 0.18, // Face must be much closer for reliable recognition
+  FACE_SIZE_MIN: 0.18,
   FACE_SIZE_MAX: 0.50,
-  // For center pose
-  YAW_MAX: 15,
-  PITCH_MAX: 15,
-  ROLL_MAX: 12,
+  // Relaxed for easier capture
+  YAW_MAX: 20,
+  PITCH_MAX: 20,
+  ROLL_MAX: 15,
 };
 
 const POSE_SMOOTHING = {
@@ -21,7 +21,7 @@ const POSE_SMOOTHING = {
 
 // Auto-capture settings
 const AUTO_CAPTURE = {
-  STABILITY_DURATION: 800,
+  STABILITY_DURATION: 500,
   BURST_COUNT: 3,
   BURST_INTERVAL: 100,
   COOLDOWN: 1500,
@@ -38,9 +38,9 @@ const TARGET_RECT = {
 
 // Multi-angle poses for registration
 const CAPTURE_POSES = [
-  { id: "center", label: "Look straight", targetYaw: 0, yawTolerance: 20 },
-  { id: "left", label: "Turn head LEFT", targetYaw: 30, yawTolerance: 15 },
-  { id: "right", label: "Turn head RIGHT", targetYaw: -30, yawTolerance: 15 },
+  { id: "center", label: "Look straight", targetYaw: 0, yawTolerance: 25 },
+  { id: "left", label: "Turn slightly LEFT", targetYaw: 15, yawTolerance: 12 },
+  { id: "right", label: "Turn slightly RIGHT", targetYaw: -15, yawTolerance: 12 },
 ];
 
 const FaceCapture = ({
@@ -843,8 +843,8 @@ const FaceCapture = ({
                 />
               )}
 
-              {/* Landmarks Overlay Canvas */}
-              {faceData && faceData.landmarks && videoRef.current && (
+              {/* Landmarks Overlay Canvas (registration only) */}
+              {mode !== "attendance" && faceData && faceData.landmarks && videoRef.current && (
                 <canvas
                   ref={landmarksCanvasRef}
                   className={styles.landmarksCanvas}
@@ -860,35 +860,56 @@ const FaceCapture = ({
                 />
               )}
 
-              {/* Progress Ring */}
-              <div className={styles.ringOverlay}>
-                <svg viewBox="0 0 100 100" className={styles.progressRingSvg}>
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    fill="none"
-                    stroke="rgba(255,255,255,0.2)"
-                    strokeWidth="3"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    fill="none"
-                    stroke={getRingColor()}
-                    strokeWidth="3"
-                    strokeDasharray={`${282.7 * (ringProgress / 100)} 282.7`}
-                    strokeLinecap="round"
-                    transform="rotate(-90 50 50)"
-                    className={styles.progressCircle}
-                  />
-                </svg>
-                <div className={styles.progressText}>
-                  <span className={styles.progressNumber}>{passedCount}</span>
-                  <span className={styles.progressLabel}>/6</span>
+              {/* Progress Ring (registration only) */}
+              {mode !== "attendance" && (
+                <div className={styles.ringOverlay}>
+                  <svg viewBox="0 0 100 100" className={styles.progressRingSvg}>
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.2)"
+                      strokeWidth="3"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke={getRingColor()}
+                      strokeWidth="3"
+                      strokeDasharray={`${282.7 * (ringProgress / 100)} 282.7`}
+                      strokeLinecap="round"
+                      transform="rotate(-90 50 50)"
+                      className={styles.progressCircle}
+                    />
+                  </svg>
+                  <div className={styles.progressText}>
+                    <span className={styles.progressNumber}>{passedCount}</span>
+                    <span className={styles.progressLabel}>/6</span>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Attendance Mode: Overlay instruction directly on video */}
+              {mode === "attendance" && cameraState === "ready" && modelsLoaded && !verificationResult?.verified && !verificationResult?.verifying && (
+                <div className={styles.overlayInstruction}>
+                  <span className={`${styles.overlayInstructionText} ${
+                    allChecksPassed && qualityStable ? styles.overlayReady :
+                    allChecksPassed ? styles.overlayAlmost : ''
+                  }`}>
+                    {!qualityChecks.faceDetected.passed ? "👤 Show your face to the camera" :
+                     !qualityChecks.facePosition.passed ? "🎯 Move face into the frame" :
+                     !qualityChecks.faceSize.passed ? (qualityChecks.faceSize.message.includes("closer") ? "↔️ Move closer" : "↔️ Move back a bit") :
+                     !qualityChecks.pose.passed ? "📐 Look straight at the camera" :
+                     !qualityChecks.brightness.passed ? "💡 Improve lighting" :
+                     !qualityChecks.sharpness.passed ? "🔍 Hold steady" :
+                     allChecksPassed && qualityStable ? "✅ Capturing..." :
+                     allChecksPassed ? "✓ Hold still..." : "Checking..."}
+                  </span>
+                </div>
+              )}
 
               {/* Loading */}
               {cameraState === "initializing" && (
@@ -987,8 +1008,8 @@ const FaceCapture = ({
           </div>
         )}
 
-      {/* Quality Panel */}
-      {!capturedImage && cameraState === "ready" && modelsLoaded && (
+      {/* Quality Panel (registration only) */}
+      {mode !== "attendance" && !capturedImage && cameraState === "ready" && modelsLoaded && (
         <div className={styles.qualityPanel}>
           <h3 className={styles.qualityTitle}>
             Quality Checks ({passedCount}/6)
@@ -1034,6 +1055,9 @@ const FaceCapture = ({
           </p>
         ) : !modelsLoaded ? (
           <p>Loading face detection...</p>
+        ) : mode === "attendance" ? (
+          /* In attendance mode, instructions are now shown as an overlay on the video */
+          null
         ) : qualityStable && allChecksPassed ? (
           <p className={styles.readyText}>✓ Ready! Auto-capturing...</p>
         ) : allChecksPassed ? (

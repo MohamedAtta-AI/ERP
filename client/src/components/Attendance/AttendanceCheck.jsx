@@ -108,7 +108,7 @@ const AttendanceCheck = ({ onBack }) => {
           // Already checked in but not out - perform check-out
           action = "check-out";
           try {
-            await checkOut(personId);
+            await checkOut(imageFile);
             console.log("✅ Check-out recorded for", personId);
           } catch (checkOutErr) {
             console.warn("Check-out recording failed:", checkOutErr);
@@ -117,7 +117,7 @@ const AttendanceCheck = ({ onBack }) => {
         } else if (!todayAttendance || !todayAttendance.check_in) {
           // Not checked in yet - perform check-in
           try {
-            await checkIn(personId);
+            await checkIn(imageFile);
             console.log("✅ Check-in recorded for", personId);
           } catch (checkInErr) {
             console.warn("Check-in recording failed:", checkInErr);

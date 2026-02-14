@@ -354,9 +354,9 @@ export const deleteAssignment = async (assignmentId) => {
 /**
  * Verify attendance (face recognition)
  */
-export const verifyAttendance = async (imageFile, locationId = null, shiftId = null) => {
+export const verifyAttendance = async (imageFile, siteId = null, shiftId = null) => {
   return apiClient.uploadFile(API_ENDPOINTS.VERIFY_ATTENDANCE, imageFile, {
-    location_id: locationId,
+    site_id: siteId,
     shift_id: shiftId,
   });
 };
@@ -364,24 +364,20 @@ export const verifyAttendance = async (imageFile, locationId = null, shiftId = n
 /**
  * Record check-in
  */
-export const checkIn = async (personId, locationId = null, shiftId = null) => {
-  return apiClient.request(API_ENDPOINTS.CHECK_IN, {
-    method: "POST",
-    body: JSON.stringify({ 
-      person_id: personId, 
-      location_id: locationId,
-      shift_id: shiftId,
-    }),
+export const checkIn = async (imageFile, siteId = null, shiftId = null) => {
+  return apiClient.uploadFile(API_ENDPOINTS.CHECK_IN, imageFile, {
+    site_id: siteId,
+    shift_id: shiftId,
   });
 };
 
 /**
  * Record check-out
  */
-export const checkOut = async (personId) => {
-  return apiClient.request(API_ENDPOINTS.CHECK_OUT, {
-    method: "POST",
-    body: JSON.stringify({ person_id: personId }),
+export const checkOut = async (imageFile, siteId = null, shiftId = null) => {
+  return apiClient.uploadFile(API_ENDPOINTS.CHECK_OUT, imageFile, {
+    site_id: siteId,
+    shift_id: shiftId,
   });
 };
 
@@ -427,6 +423,16 @@ export const listOvertimeRequests = async (params = {}) => {
   const queryString = queryParams.toString();
   const endpoint = queryString ? `${API_ENDPOINTS.OVERTIME_REQUESTS}?${queryString}` : API_ENDPOINTS.OVERTIME_REQUESTS;
   return apiClient.request(endpoint);
+};
+
+/**
+ * Submit overtime request
+ */
+export const submitOvertimeRequest = async (overtimeData) => {
+  return apiClient.request(API_ENDPOINTS.OVERTIME_REQUESTS, {
+    method: "POST",
+    body: JSON.stringify(overtimeData),
+  });
 };
 
 /**

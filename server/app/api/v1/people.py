@@ -227,14 +227,9 @@ async def enroll_face(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Upsert: one embedding per person (person_id is PK)
-    existing = session.get(FaceEmbedding, person_id)
-    if existing:
-        existing.embedding = embedding_vector
-        session.add(existing)
-    else:
-        face_emb = FaceEmbedding(person_id=person_id, embedding=embedding_vector)
-        session.add(face_emb)
+    # Always append a new embedding (supports multi-angle enrollment)
+    face_emb = FaceEmbedding(person_id=person_id, embedding=embedding_vector)
+    session.add(face_emb)
     session.commit()
 
     return {"message": "Face enrolled successfully"}

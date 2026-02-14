@@ -47,65 +47,100 @@ async def recognize_person(
     shift_id: UUID,
     session: Session,
 ):
-    # Generate embedding and check anti-spoofing
+    """Recognize a person by face embedding similarity."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
         contents = await image.read()
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         embedding = face_service.generate_embedding(image)
     
-        # Query top 3 nearest face embeddings with cosine distance
+        # Query top 5 nearest face embeddings with cosine distance
         distance_col = FaceEmbedding.embedding.cosine_distance(embedding).label("distance")
         results = session.exec(
             select(FaceEmbedding, distance_col)
             .order_by(distance_col)
-            .limit(3)
+            .limit(5)
         ).all()
 
-        # Group distances by person_id
-        person_matches = {} # person_id -> list of similarities
-        for face_emb, dist in results:
-            if face_emb.person_id:
-                similarity = 1 - float(dist)
-                if face_emb.person_id not in person_matches:
-                    person_matches[face_emb.person_id] = []
-                person_matches[face_emb.person_id].append(similarity)
+        if not results:
+            logger.info("No face embeddings in database to match against")
+            return None, None, 0.0
 
-        matched_person_name = None
-        matched_person_id = None
-        avg_similarity = 0.0
+        # Log top results for debugging
+        for i, (emb, dist) in enumerate(results):
+            sim = 1 - float(dist)
+            logger.info(f"  Match #{i+1}: person_id={emb.person_id}, similarity={sim:.4f}")
 
-        # Check for at least two matches for any person
-        for pid, similarities in person_matches.items():
-            if len(similarities) >= 2:
-                avg_similarity = sum(similarities) / len(similarities)
-                
-                # Check against threshold
-                if avg_similarity < config.SIMILARITY_THRESHOLD:
-                    break
-                    
-                matched_person_id = pid
-                # Fetch person to get name
-                person = session.get(Person, matched_person_id)
-                if person:
-                    matched_person_name = person.full_name
-                break
+        # Use the best match (lowest distance / highest similarity)
+        best_emb, best_dist = results[0]
+        similarity = 1 - float(best_dist)
 
-        return matched_person_name, matched_person_id, avg_similarity
+        logger.info(f"Best match: person_id={best_emb.person_id}, similarity={similarity:.4f}, threshold={config.SIMILARITY_THRESHOLD}")
+
+        if similarity >= config.SIMILARITY_THRESHOLD and best_emb.person_id:
+            person = session.get(Person, best_emb.person_id)
+            if person:
+                logger.info(f"✅ Recognized: {person.full_name} (ID: {person.id})")
+                return person.full_name, best_emb.person_id, similarity
+
+        logger.info(f"❌ No match above threshold ({config.SIMILARITY_THRESHOLD})")
+        return None, None, similarity
     
-    except ValueError as e: # Spoofing detected
-        # raise HTTPException(status_code=400, detail="Spoof detected in the given image.")
+    except ValueError as e:
+        logger.warning(f"Face recognition ValueError (possible spoof): {e}")
         return None, None, 0.0
 
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/verify", response_model=dict)
+async def verify_attendance(
+    file: UploadFile = File(..., description="Face image for verification"),
+    site_id: Optional[UUID] = Form(None),
+    shift_id: Optional[UUID] = Form(None),
+    session: Session = Depends(get_session),
+):
+    """
+    Verify a person from a face image without recording attendance.
+    Returns person info and current attendance status for today.
+    """
+    name, person_id, similarity = await recognize_person(file, site_id, shift_id, session)
+    
+    if not person_id:
+        return {
+            "match_found": False,
+            "is_real": True,
+            "message": "Face recognition failed"
+        }
+    
+    # Check current status
+    attendance = get_today_attendance(session, person_id)
+    status = "none"
+    if attendance:
+        if attendance.check_out:
+            status = "checked-out"
+        elif attendance.check_in:
+            status = "checked-in"
+
+    return {
+        "match_found": True,
+        "person_id": person_id,
+        "full_name": name,
+        "similarity_score": similarity,
+        "current_status": status,
+        "is_real": True
+    }
+
+
 @router.post("/check-in", response_model=AttendanceResponse)
 async def check_in(
     file: UploadFile = File(..., description="Face image for verification"),
-    site_id: UUID = Form(...),
-    shift_id: UUID = Form(...),
+    site_id: Optional[UUID] = Form(None),
+    shift_id: Optional[UUID] = Form(None),
     session: Session = Depends(get_session),
 ):
     # 1. Recognize person from face
@@ -129,27 +164,52 @@ async def check_in(
             )
 
     else:
-        # Find matching assignment
+        # Resolve site_id and shift_id if not provided
         today = date.today()
-        assignment = session.exec(
-            select(Assignment).where(
+        if not site_id or not shift_id:
+            # Look for an active assignment
+            stmt = select(Assignment).where(
                 Assignment.person_id == person_id,
-                Assignment.site_id == site_id,
-                Assignment.shift_id == shift_id,
                 Assignment.effective_from <= today,
                 (Assignment.effective_to == None) | (Assignment.effective_to >= today)
-            )
-        ).first()
+            ).order_by(Assignment.effective_from.desc())
+            
+            assignment = session.exec(stmt).first()
+            
+            if not assignment:
+                if not site_id or not shift_id:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="No active assignment found for person and no site/shift info provided."
+                    )
+        else:
+            # Find matching assignment for specific site/shift
+            assignment = session.exec(
+                select(Assignment).where(
+                    Assignment.person_id == person_id,
+                    Assignment.site_id == site_id,
+                    Assignment.shift_id == shift_id,
+                    Assignment.effective_from <= today,
+                    (Assignment.effective_to == None) | (Assignment.effective_to >= today)
+                )
+            ).first()
 
         if not assignment:
-            assignment = Assignment(
-                person_id=person_id,
-                site_id=site_id,
-                shift_id=shift_id,
-                effective_from=today
-            )
-            session.add(assignment)
-            session.flush()
+            # Create a temporary/adhoc assignment if we have the IDs
+            if site_id and shift_id:
+                assignment = Assignment(
+                    person_id=person_id,
+                    site_id=site_id,
+                    shift_id=shift_id,
+                    effective_from=today
+                )
+                session.add(assignment)
+                session.flush()
+            else:
+                 raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot create attendance: missing site/shift information and no existing assignment found."
+                )
 
         # Create new attendance record
         attendance = Attendance(
@@ -175,8 +235,8 @@ async def check_in(
 @router.post("/check-out", response_model=AttendanceResponse)
 async def check_out(
     file: UploadFile = File(..., description="Face image for verification"),
-    site_id: UUID = Form(...),
-    shift_id: UUID = Form(...),
+    site_id: Optional[UUID] = Form(None),
+    shift_id: Optional[UUID] = Form(None),
     session: Session = Depends(get_session),
 ):
     # 1. Recognize person from face
@@ -398,9 +458,13 @@ async def manage_overtime_request(
     )
 
 
+class ReconcileRequest(BaseModel):
+    target_date: Optional[date] = None
+
+
 @router.post("/reconcile")
 async def reconcile_attendance_endpoint(
-    target_date: Optional[date] = None,
+    request: Optional[ReconcileRequest] = None,
     current_user: Person = Depends(require_auth),
     session: Session = Depends(get_session),
 ):
@@ -412,7 +476,7 @@ async def reconcile_attendance_endpoint(
     if current_user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Only admins can reconcile attendance")
     
-    reconcile_date = target_date or date.today()
+    reconcile_date = (request.target_date if request else None) or date.today()
     result = reconcile_attendance(reconcile_date, session)
     
     return {

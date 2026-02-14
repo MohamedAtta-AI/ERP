@@ -136,13 +136,12 @@ class Person(SQLModel, table=True):
 class FaceEmbedding(SQLModel, table=True):
     __tablename__ = "face_embedding"
 
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     embedding: Optional[list["float"]] = Field(
         default=None, sa_column=Column(Vector(config.EMBEDDING_SIZE))
     )
 
-    person_id: Optional[str] = Field(
-        primary_key=True, foreign_key="person.id", ondelete="CASCADE"
-    )
+    person_id: str = Field(foreign_key="person.id", ondelete="CASCADE")
     person: Optional["Person"] = Relationship(back_populates="face_embeddings")
 
 
