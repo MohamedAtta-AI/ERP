@@ -120,6 +120,19 @@ body {
   box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
+.input-field.input-error,
+.select-field.input-error {
+  border-color: var(--color-error, #dc2626);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+}
+
+.field-error {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--color-error, #dc2626);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

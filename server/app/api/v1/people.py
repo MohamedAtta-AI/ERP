@@ -1,7 +1,8 @@
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 from pathlib import Path
-
+import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlmodel import Session, select
 
@@ -10,24 +11,21 @@ from server.db.models import Person, PaymentInfo, Role, PersonStatus, Document, 
 from server.app.schemas.person import (
     PersonCreate,
     PersonRead,
+    PersonUpdate,
     PaymentInfoCreate,
     PaymentInfoRead,
 )
-from server.app.dependencies import require_auth
+from server.app.dependencies import (
+    require_auth,
+    require_admin,
+    require_supervisor_or_admin,
+)
 from server.app.services.password_service import hash_password
 from server.app.services.person_id_generator import generate_person_id
+from server.app.services.face_recognition import FaceRecognitionService
+from server.db.models import FaceEmbedding
 
 router = APIRouter()
-
-
-@router.post("/register", response_model=PersonRead)
-async def register_person_via_register(
-    person_in: PersonCreate,
-    session: Session = Depends(get_session),
-    current_user: Person = Depends(require_auth),
-):
-    """Register endpoint - alias for POST /"""
-    return await register_person(person_in, session, current_user)
 
 
 @router.post("/", response_model=PersonRead)
@@ -97,6 +95,27 @@ async def list_persons(
     return session.exec(stmt).all()
 
 
+@router.get("/check-identity")
+async def check_identity(
+    national_id: Optional[str] = None,
+    passport: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """Check if national ID or passport is already registered. Used for live form validation."""
+    result = {"nationalID_taken": False, "passport_taken": False}
+    if national_id and national_id.strip():
+        existing = session.exec(
+            select(Person).where(Person.nationalID == national_id.strip())
+        ).first()
+        result["nationalID_taken"] = existing is not None
+    if passport and passport.strip():
+        existing = session.exec(
+            select(Person).where(Person.passport == passport.strip())
+        ).first()
+        result["passport_taken"] = existing is not None
+    return result
+
+
 @router.get("/{person_id}", response_model=PersonRead)
 async def get_person(
     person_id: str,
@@ -106,6 +125,50 @@ async def get_person(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     return person
+
+
+@router.patch("/{person_id}", response_model=PersonRead)
+async def update_person(
+    person_id: str,
+    person_in: PersonUpdate,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_supervisor_or_admin),
+):
+    """Update a person. Admins can update anyone; supervisors can only update workers."""
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    if current_user.role == Role.SUPERVISOR and person.role != Role.WORKER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supervisors can only update workers.",
+        )
+
+    update_data = person_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(person, key, value)
+
+    session.add(person)
+    session.commit()
+    session.refresh(person)
+    return person
+
+
+@router.delete("/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_person(
+    person_id: str,
+    session: Session = Depends(get_session),
+    current_user: Person = Depends(require_admin),
+):
+    """Soft-delete a person by setting status to TERMINATED. Admin only."""
+    person = session.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    person.status = PersonStatus.TERMINATED
+    session.add(person)
+    session.commit()
 
 
 @router.post("/{person_id}/payment-info", response_model=PaymentInfoRead)
@@ -149,18 +212,6 @@ async def enroll_face(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    # Just a skeleton, user didn't ask to rewrite face logic but verify routes.
-    # If the client calls it, it needs to exist.
-    # Client: `api.js` -> `ENROLL_FACE: ...`
-    # Check `attendance.py`? It was check-in/out.
-    # Where was face enrollment?
-    # It was likely in the old implementation. I should add it here.
-
-    from server.app.services.face_recognition import FaceRecognitionService
-    from server.db.models import FaceEmbedding
-    import cv2
-    import numpy as np
-
     person = session.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -176,9 +227,14 @@ async def enroll_face(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Save
-    face_emb = FaceEmbedding(person_id=person_id, embedding=embedding_vector)
-    session.add(face_emb)
+    # Upsert: one embedding per person (person_id is PK)
+    existing = session.get(FaceEmbedding, person_id)
+    if existing:
+        existing.embedding = embedding_vector
+        session.add(existing)
+    else:
+        face_emb = FaceEmbedding(person_id=person_id, embedding=embedding_vector)
+        session.add(face_emb)
     session.commit()
 
     return {"message": "Face enrolled successfully"}

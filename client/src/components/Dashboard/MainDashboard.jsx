@@ -102,11 +102,11 @@ const MainDashboard = () => {
           {/* Welcome Section */}
           <div className={styles.welcomeSection}>
             <h1 className={styles.welcomeTitle}>
-              Welcome back, {user?.full_name?.split(' ')[0] || 'User'}
+              Welcome, {user?.full_name?.split(' ')[0] || 'User'}
             </h1>
-            <p className={styles.welcomeSubtitle}>
+            {/* <p className={styles.welcomeSubtitle}>
               Manage attendance and worker registration from here.
-            </p>
+            </p> */}
           </div>
 
           {/* KPI Cards */}

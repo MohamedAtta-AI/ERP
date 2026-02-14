@@ -8,6 +8,19 @@ const getAccessToken = () => {
 };
 
 /**
+ * Turn API error detail (string or array of { msg, loc }) into a single display string
+ */
+function formatErrorDetail(detail, fallback = "An error occurred") {
+  if (detail == null) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (d && typeof d.msg === "string" ? d.msg : JSON.stringify(d))).join(". ");
+  }
+  if (typeof detail === "object" && detail.message) return detail.message;
+  return fallback;
+}
+
+/**
  * API Client utility functions
  */
 class ApiClient {
@@ -50,7 +63,7 @@ class ApiClient {
           localStorage.removeItem('user');
           // Don't redirect here - let the component handle it
         }
-        throw new Error(data.detail || data.message || "An error occurred");
+        throw new Error(formatErrorDetail(data.detail, data.message || "An error occurred"));
       }
 
       return data;
@@ -99,7 +112,7 @@ class ApiClient {
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
         }
-        throw new Error(data.detail || data.message || "Upload failed");
+        throw new Error(formatErrorDetail(data.detail, data.message || "Upload failed"));
       }
 
       return data;
@@ -171,6 +184,19 @@ export const listEmployees = async (params = {}) => {
   if (params.limit) queryParams.append("limit", params.limit);
   const queryString = queryParams.toString();
   const endpoint = queryString ? `${API_ENDPOINTS.LIST_EMPLOYEES}?${queryString}` : API_ENDPOINTS.LIST_EMPLOYEES;
+  return apiClient.request(endpoint);
+};
+
+/**
+ * Check if national ID or passport is already registered (for live form validation).
+ * @returns {{ nationalID_taken: boolean, passport_taken: boolean }}
+ */
+export const checkIdentity = async (nationalID = "", passport = "") => {
+  const params = new URLSearchParams();
+  if (nationalID != null && String(nationalID).trim()) params.set("national_id", String(nationalID).trim());
+  if (passport != null && String(passport).trim()) params.set("passport", String(passport).trim());
+  const query = params.toString();
+  const endpoint = query ? `${API_ENDPOINTS.CHECK_IDENTITY}?${query}` : API_ENDPOINTS.CHECK_IDENTITY;
   return apiClient.request(endpoint);
 };
 

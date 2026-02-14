@@ -7,7 +7,8 @@ import {
   listLocations, 
   listShifts,
   listEmployees,
-  uploadDocument
+  uploadDocument,
+  checkIdentity
 } from '../../services/api';
 import ErrorMessage from '../Common/ErrorMessage';
 
@@ -15,6 +16,47 @@ const STEPS = [
   { id: 1, title: 'Personal Information', icon: '👤' },
   { id: 2, title: 'Payment Details', icon: '💳' },
   { id: 3, title: 'Assignment', icon: '📍' },
+];
+
+const BANK_NAMES = [
+  'Banque Misr',
+  'National Bank of Egypt',
+  'Egyptian Arab Land Bank',
+  'Agricultural Bank of Egypt',
+  'Industrial Development Bank',
+  'Banque du Caire',
+  'The United Bank (United Bank of Egypt)',
+  'Bank of Alexandria',
+  'MIDBank S.A.E',
+  'Commercial International Bank (Egypt)',
+  'Attijariwafa bank Egypt S.A.E',
+  'Société Arabe Internationale de Banque',
+  'Blom Bank – Egypt',
+  'Credit Agricole Egypt S.A.E',
+  'Emirates National Bank of Dubai S.A.E.',
+  'Suez Canal Bank',
+  'Qatar National Bank Alahli S.A.E',
+  'Arab Investment Bank',
+  'Al Ahli Bank of Kuwait – Egypt',
+  'Bank Audi S.A.E',
+  'Ahli United Bank – Egypt',
+  'Faisal Islamic Bank of Egypt',
+  'Housing and Development Bank',
+  'Al Baraka Bank of Egypt S.A.E',
+  'National Bank of Kuwait – Egypt (NBK)',
+  'Abu Dhabi Islamic Bank – Egypt',
+  'Abu Dhabi Commercial Bank Egypt',
+  'Egyptian Gulf Bank',
+  'Arab African International Bank',
+  'HSBC Bank Egypt S.A.E',
+  'Arab Banking Corporation – Egypt S.A.E',
+  'Export Development Bank of Egypt',
+  'Arab International Bank',
+  'First Abu Dhabi Bank',
+  'Citi Bank N.A. / Egypt',
+  'Arab Bank PLC',
+  'Mashreq Bank',
+  'National Bank of Greece (Egypt)',
 ];
 
 const STORAGE_KEY = 'erp_registration_form_data';
@@ -84,6 +126,7 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
   };
 
   const [formData, setFormData] = useState(getInitialFormData);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [documents, setDocuments] = useState([]); // Array of {type: string, file: File}
 
   // Save form data to localStorage whenever it changes
@@ -135,6 +178,11 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
     setFormData(prev => {
       const updates = {
         ...prev,
@@ -157,6 +205,87 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
       
       return updates;
     });
+  };
+
+  const validateField = (name, data) => {
+    const d = data ?? formData;
+    if (name === 'full_name') return !d.full_name?.trim() ? 'Full name is required' : null;
+    if (name === 'nationalID') {
+      if (!d.nationalID?.trim()) return 'National ID is required';
+      if (d.nationalID.length !== 14 || !/^\d{14}$/.test(d.nationalID)) return 'National ID must be exactly 14 digits';
+      return null;
+    }
+    if (name === 'phone') {
+      if (!d.phone?.trim()) return 'Phone is required';
+      if (d.phone.length !== 11 || !/^\d{11}$/.test(d.phone)) return 'Phone must be exactly 11 digits (no country code)';
+      return null;
+    }
+    if (name === 'hire_date') return !d.hire_date ? 'Hire date is required' : null;
+    if (name === 'wallet_provider') return (d.payment_method === 'wallet' && !d.wallet_provider) ? 'Wallet provider is required' : null;
+    if (name === 'wallet_number') {
+      if (d.payment_method === 'wallet' || d.payment_method === 'instapay') {
+        if (!d.wallet_number?.trim()) return d.payment_method === 'wallet' ? 'Wallet phone number is required' : 'Instapay phone number is required';
+        if (d.wallet_number.length !== 11 || !/^\d{11}$/.test(d.wallet_number)) return 'Phone number must be exactly 11 digits (no country code)';
+      }
+      return null;
+    }
+    return null;
+  };
+
+  const handleBlur = async (e) => {
+    const { name, value } = e.target;
+    const trimmed = value != null ? String(value).trim() : '';
+    const err = validateField(name);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (err) next[name] = err;
+      else delete next[name];
+      return next;
+    });
+    if (err) return;
+    if (name === 'nationalID' && trimmed.length === 14 && /^\d{14}$/.test(trimmed)) {
+      try {
+        const res = await checkIdentity(trimmed, null);
+        if (res?.nationalID_taken) {
+          setFieldErrors((prev) => ({ ...prev, nationalID: 'A person with this National ID is already registered.' }));
+        }
+      } catch (_) { /* keep existing error or none */ }
+      return;
+    }
+    if (name === 'passport' && trimmed.length > 0) {
+      try {
+        const res = await checkIdentity(null, trimmed);
+        if (res?.passport_taken) {
+          setFieldErrors((prev) => ({ ...prev, passport: 'A person with this passport number is already registered.' }));
+        }
+      } catch (_) { /* keep existing error or none */ }
+    }
+  };
+
+  const getStepFieldErrors = (currentStep) => {
+    const errors = {};
+    if (currentStep === 1) {
+      ['full_name', 'nationalID', 'phone', 'hire_date'].forEach((f) => {
+        const e = validateField(f);
+        if (e) errors[f] = e;
+      });
+      if (hasRole('supervisor') && !hasRole('admin') && formData.role !== 'worker') {
+        errors.role = 'Supervisors can only register workers.';
+      }
+    }
+    if (currentStep === 2) {
+      if (formData.payment_method === 'wallet') {
+        const e1 = validateField('wallet_provider');
+        const e2 = validateField('wallet_number');
+        if (e1) errors.wallet_provider = e1;
+        if (e2) errors.wallet_number = e2;
+      }
+      if (formData.payment_method === 'instapay') {
+        const e = validateField('wallet_number');
+        if (e) errors.wallet_number = e;
+      }
+    }
+    return errors;
   };
 
   const validateStep = (currentStep) => {
@@ -199,14 +328,21 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
     const err = validateStep(step);
     if (err) {
       setError(err);
+      setFieldErrors(getStepFieldErrors(step));
+      return;
+    }
+    if (step === 1 && (fieldErrors.nationalID || fieldErrors.passport)) {
+      setError(fieldErrors.nationalID || fieldErrors.passport);
       return;
     }
     setError(null);
+    setFieldErrors({});
     setStep(prev => prev + 1);
   };
 
   const handleBack = () => {
     setError(null);
+    setFieldErrors({});
     setStep(prev => prev - 1);
   };
 
@@ -228,7 +364,7 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
         city: formData.city || null,
         role: formData.role,
         status: formData.status,
-        worker_type: formData.worker_type || null,
+        worker_type: formData.worker_type === 'temporary' ? 'temp' : (formData.worker_type || null),
         pay_cycle: formData.pay_cycle || null,
         supervisor_id: formData.supervisor_id || null,
         overtime_eligible: formData.overtime_eligible,
@@ -293,7 +429,8 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
 
     } catch (err) {
       console.error(err);
-      setError(err.message || "Registration failed");
+      const msg = err?.message && typeof err.message === "string" ? err.message : "Registration failed";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -331,15 +468,17 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
             <div className="form-grid">
               <div className="form-group">
                 <label className="label">Full Name *</label>
-                <input name="full_name" value={formData.full_name} onChange={handleChange} className="input-field" placeholder="John Doe" />
+                <input name="full_name" value={formData.full_name} onChange={handleChange} onBlur={handleBlur} className={`input-field ${fieldErrors.full_name ? 'input-error' : ''}`} placeholder="John Doe" />
+                {fieldErrors.full_name && <span className="field-error">{fieldErrors.full_name}</span>}
               </div>
               {hasRole('admin') && (
                 <div className="form-group">
                   <label className="label">Role</label>
-                  <select name="role" value={formData.role} onChange={handleChange} className="select-field">
+                  <select name="role" value={formData.role} onChange={handleChange} className={`select-field ${fieldErrors.role ? 'input-error' : ''}`}>
                     <option value="worker">Worker</option>
                     <option value="supervisor">Supervisor</option>
                   </select>
+                  {fieldErrors.role && <span className="field-error">{fieldErrors.role}</span>}
                 </div>
               )}
               <div className="form-group">
@@ -348,15 +487,18 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                   name="nationalID" 
                   value={formData.nationalID} 
                   onChange={handleChange} 
-                  className="input-field" 
+                  onBlur={handleBlur}
+                  className={`input-field ${fieldErrors.nationalID ? 'input-error' : ''}`}
                   placeholder="14 digits"
                   maxLength={14}
                   pattern="[0-9]{14}"
                 />
+                {fieldErrors.nationalID && <span className="field-error">{fieldErrors.nationalID}</span>}
               </div>
               <div className="form-group">
                 <label className="label">Passport</label>
-                <input name="passport" value={formData.passport} onChange={handleChange} className="input-field" />
+                <input name="passport" value={formData.passport} onChange={handleChange} onBlur={handleBlur} className={`input-field ${fieldErrors.passport ? 'input-error' : ''}`} placeholder="e.g. A12345678" />
+                {fieldErrors.passport && <span className="field-error">{fieldErrors.passport}</span>}
               </div>
               <div className="form-group">
                 <label className="label">Email</label>
@@ -368,11 +510,13 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                   name="phone" 
                   value={formData.phone} 
                   onChange={handleChange} 
-                  className="input-field" 
+                  onBlur={handleBlur}
+                  className={`input-field ${fieldErrors.phone ? 'input-error' : ''}`}
                   placeholder="11 digits (no country code)"
                   maxLength={11}
                   pattern="[0-9]{11}"
                 />
+                {fieldErrors.phone && <span className="field-error">{fieldErrors.phone}</span>}
               </div>
               <div className="form-group">
                 <label className="label">Date of Birth</label>
@@ -405,9 +549,11 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                   type="date" 
                   value={formData.hire_date} 
                   onChange={handleChange} 
-                  className="input-field"
+                  onBlur={handleBlur}
+                  className={`input-field ${fieldErrors.hire_date ? 'input-error' : ''}`}
                   required
                 />
+                {fieldErrors.hire_date && <span className="field-error">{fieldErrors.hire_date}</span>}
               </div>
               <div className="form-group">
                 <label className="label">Termination Date</label>
@@ -426,7 +572,7 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                     <select name="worker_type" value={formData.worker_type} onChange={handleChange} className="select-field">
                       <option value="">Select...</option>
                       <option value="permanent">Permanent</option>
-                      <option value="temporary">Temporary</option>
+                      <option value="temp">Temporary</option>
                       <option value="contractor">Contractor</option>
                     </select>
                   </div>
@@ -563,7 +709,12 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
               <div className="form-grid">
                 <div className="form-group">
                   <label className="label">Bank Name</label>
-                  <input name="bank_name" value={formData.bank_name} onChange={handleChange} className="input-field" />
+                  <select name="bank_name" value={formData.bank_name} onChange={handleChange} className="select-field">
+                    <option value="">Select bank...</option>
+                    {BANK_NAMES.map((bank) => (
+                      <option key={bank} value={bank}>{bank}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-group">
                   <label className="label">Account Holder</label>
@@ -584,13 +735,14 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                <div className="form-grid">
                  <div className="form-group">
                    <label className="label">Provider *</label>
-                   <select name="wallet_provider" value={formData.wallet_provider} onChange={handleChange} className="select-field" required>
+                   <select name="wallet_provider" value={formData.wallet_provider} onChange={handleChange} onBlur={handleBlur} className={`select-field ${fieldErrors.wallet_provider ? 'input-error' : ''}`} required>
                      <option value="">Select Provider...</option>
                      <option value="Vodafone Cash">Vodafone Cash</option>
                      <option value="Etsalat Cash">Etsalat Cash</option>
                      <option value="Orange Cash">Orange Cash</option>
                      <option value="WE Pay">WE Pay</option>
                    </select>
+                   {fieldErrors.wallet_provider && <span className="field-error">{fieldErrors.wallet_provider}</span>}
                  </div>
                  <div className="form-group">
                    <label className="label">Phone Number *</label>
@@ -598,12 +750,14 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                      name="wallet_number" 
                      value={formData.wallet_number} 
                      onChange={handleChange} 
-                     className="input-field"
+                     onBlur={handleBlur}
+                     className={`input-field ${fieldErrors.wallet_number ? 'input-error' : ''}`}
                      placeholder="11 digits (no country code)"
                      maxLength={11}
                      pattern="[0-9]{11}"
                      required
                    />
+                   {fieldErrors.wallet_number && <span className="field-error">{fieldErrors.wallet_number}</span>}
                  </div>
                </div>
             )}
@@ -616,12 +770,14 @@ const PersonRegistrationWizard = ({ onSuccess }) => {
                      name="wallet_number" 
                      value={formData.wallet_number} 
                      onChange={handleChange} 
-                     className="input-field"
+                     onBlur={handleBlur}
+                     className={`input-field ${fieldErrors.wallet_number ? 'input-error' : ''}`}
                      placeholder="11 digits (no country code)"
                      maxLength={11}
                      pattern="[0-9]{11}"
                      required
                    />
+                   {fieldErrors.wallet_number && <span className="field-error">{fieldErrors.wallet_number}</span>}
                  </div>
                </div>
             )}

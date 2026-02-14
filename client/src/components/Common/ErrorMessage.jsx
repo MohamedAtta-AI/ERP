@@ -2,7 +2,9 @@ import React from "react";
 import styles from "./ErrorMessage.module.css";
 
 const ErrorMessage = ({ message, onDismiss }) => {
-  if (!message) return null;
+  if (message == null) return null;
+  const text = typeof message === "string" ? message : (message?.message ?? String(message));
+  if (!text) return null;
 
   return (
     <div className={styles.errorContainer}>
@@ -19,7 +21,7 @@ const ErrorMessage = ({ message, onDismiss }) => {
           <line x1="12" y1="8" x2="12" y2="12"></line>
           <line x1="12" y1="16" x2="12.01" y2="16"></line>
         </svg>
-        <span className={styles.errorMessage}>{message}</span>
+        <span className={styles.errorMessage}>{text}</span>
       </div>
       {onDismiss && (
         <button className={styles.dismissButton} onClick={onDismiss}>

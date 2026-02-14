@@ -66,7 +66,7 @@ class Person(SQLModel, table=True):
     password_hash: str = Field(min_length=5)
     full_name: str = Field(max_length=255, index=True)
     nationalID: Optional[str] = Field(max_length=20, unique=True)
-    passport: Optional[str] = Field(max_length=9)
+    passport: Optional[str] = Field(max_length=9, unique=True)
     phone: str = Field(max_length=15)
     email: Optional[str] = Field(default=None)
     dob: Optional[date] = Field(default=None)

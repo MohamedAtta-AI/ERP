@@ -8,10 +8,11 @@ export const API_ENDPOINTS = {
   LOGIN: "/api/v1/auth/login",
   
   // Employee/Person endpoints
-  REGISTER_EMPLOYEE: "/api/v1/employees/register",
+  REGISTER_EMPLOYEE: "/api/v1/employees",
   ENROLL_FACE: (employeeId) => `/api/v1/employees/${employeeId}/enroll-face`,
   GET_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
   LIST_EMPLOYEES: "/api/v1/employees",
+  CHECK_IDENTITY: "/api/v1/employees/check-identity",
   PAYMENT_INFO: (employeeId) => `/api/v1/employees/${employeeId}/payment-info`,
   UPLOAD_DOCUMENT: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
   
