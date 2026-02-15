@@ -1,15 +1,24 @@
-"""API schemas."""
-from .employee import EmployeeCreate, EmployeeResponse
-from .attendance import AttendanceCheckIn, AttendanceCheckOut, AttendanceResponse, AttendanceHistoryResponse
-from .face import FaceEnrollRequest, FaceVerifyResponse
+# API Schemas package
+from .person import PersonCreate, PersonRead, PersonUpdate
+from .attendance import (
+    AttendanceRequest,
+    AttendanceResponse,
+    AttendanceRead,
+)
+from .overtime import (
+    OvertimeRequestCreate,
+    OvertimeRequestUpdate,
+    OvertimeRequestRead,
+)
 
 __all__ = [
-    "EmployeeCreate",
-    "EmployeeResponse",
-    "AttendanceCheckIn",
-    "AttendanceCheckOut",
+    "PersonCreate",
+    "PersonRead", 
+    "PersonUpdate",
+    "AttendanceRequest",
     "AttendanceResponse",
-    "AttendanceHistoryResponse",
-    "FaceEnrollRequest",
-    "FaceVerifyResponse",
+    "AttendanceRead",
+    "OvertimeRequestCreate",
+    "OvertimeRequestUpdate",
+    "OvertimeRequestRead",
 ]

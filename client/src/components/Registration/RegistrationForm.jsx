@@ -57,10 +57,21 @@ const RegistrationForm = ({ onSuccess }) => {
 
     setIsLoading(true);
     try {
+      console.log("Submitting registration:", formData);
       const response = await registerEmployee(formData);
-      setEmployeeId(response.employee_id);
+      console.log("Registration response:", response);
+      
+      // Backend returns person_id, but we also support employee_id for compatibility
+      const id = response.person_id || response.employee_id || response.id;
+      if (!id) {
+        console.error("No ID in response:", response);
+        throw new Error("No ID returned from server. Response: " + JSON.stringify(response));
+      }
+      setEmployeeId(id);
     } catch (err) {
-      setError(err.message || "Registration failed. Please try again.");
+      console.error("Registration error:", err);
+      const errorMessage = err.message || err.toString() || "Registration failed. Please try again.";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

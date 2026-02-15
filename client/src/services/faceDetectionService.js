@@ -2,7 +2,11 @@
  * Global face detection service using MediaPipe Face Mesh
  * Provides face detection with landmarks for quality checks and liveness
  */
-import { FaceMesh } from "@mediapipe/face_mesh";
+// IMPORTANT:
+// `@mediapipe/face_mesh` is shipped as UMD and registers `FaceMesh` on the global object.
+// Named ESM imports can fail under Vite/Rollup (and may be tree-shaken due to `sideEffects: []`).
+// Import the module namespace to ensure evaluation, then fall back to globalThis.
+import * as mpFaceMesh from "@mediapipe/face_mesh";
 
 class FaceDetectionService {
   constructor() {
@@ -11,6 +15,7 @@ class FaceDetectionService {
     this.faceMesh = null;
     this.requestQueue = []; // Queue of pending requests
     this.processing = false;
+    this.initError = null;
   }
 
   /**
@@ -31,10 +36,26 @@ class FaceDetectionService {
 
   async _loadModels() {
     try {
-      console.log("[FaceDetection] Loading MediaPipe Face Mesh...");
-      this.faceMesh = new FaceMesh({
+      console.log("[FaceDetection] Loading MediaPipe Face Mesh from local files...");
+      const FaceMeshCtor =
+        mpFaceMesh?.FaceMesh ||
+        globalThis?.FaceMesh ||
+        (typeof window !== "undefined" ? window.FaceMesh : undefined);
+
+      if (typeof FaceMeshCtor !== "function") {
+        const err = new TypeError(
+          "MediaPipe FaceMesh constructor not found (FaceMesh is not a constructor). " +
+            "This usually means the bundler didn't evaluate @mediapipe/face_mesh. " +
+            "Restart the dev server after dependency changes."
+        );
+        this.initError = err;
+        throw err;
+      }
+
+      this.faceMesh = new FaceMeshCtor({
         locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+          // Use local files from public folder for offline support
+          return `/models/mediapipe/${file}`;
         },
       });
 
@@ -51,26 +72,38 @@ class FaceDetectionService {
       });
 
       // Initialize by sending a dummy image
-      await new Promise((resolve) => {
-        const initTimeout = setTimeout(() => {
-          this.modelsLoaded = true;
-          console.log(
-            "[FaceDetection] MediaPipe Face Mesh loaded successfully"
-          );
-          resolve();
-        }, 500);
-
-        // Create a tiny canvas to trigger initialization
-        const canvas = document.createElement("canvas");
-        canvas.width = 1;
-        canvas.height = 1;
+      // MediaPipe loads models lazily on first send, so we trigger that here
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, 1, 1);
+      
+      try {
         this.faceMesh.send({ image: canvas });
+      } catch (err) {
+        console.warn("[FaceDetection] Initial send failed (may be normal):", err);
+      }
+
+      // Wait a bit for models to load, then mark as ready
+      // MediaPipe loads models asynchronously, so we give it time
+      await new Promise((resolve) => {
+        setTimeout(() => {
+          this.modelsLoaded = true;
+          console.log("[FaceDetection] MediaPipe Face Mesh ready");
+          resolve();
+        }, 1000); // Give 1 second for models to load
       });
 
       return true;
     } catch (err) {
       console.error("[FaceDetection] Failed to load models:", err);
       this.loadingPromise = null;
+      this.initError = err;
+      // Keep modelsLoaded = false so the UI can reflect "models not ready"
+      // and we don't call `.send()` on a null `faceMesh`.
+      this.modelsLoaded = false;
       throw err;
     }
   }
@@ -137,6 +170,23 @@ class FaceDetectionService {
       return;
     }
 
+    if (!this.faceMesh) {
+      // Fail-fast queued requests if initialization failed.
+      while (this.requestQueue.length) {
+        const { resolve, timeout } = this.requestQueue.shift();
+        clearTimeout(timeout);
+        resolve({
+          detected: false,
+          landmarks: null,
+          boundingBox: null,
+          pose: null,
+          error: this.initError ? String(this.initError) : "FaceMesh not initialized",
+        });
+      }
+      this.processing = false;
+      return;
+    }
+
     const { video } = this.requestQueue[0];
     this.processing = true;
     this.faceMesh.send({ image: video });
@@ -149,6 +199,16 @@ class FaceDetectionService {
   async detectFaceWithLandmarks(video) {
     if (!this.modelsLoaded) {
       await this.ensureModelsLoaded();
+    }
+
+    if (!this.faceMesh) {
+      return {
+        detected: false,
+        landmarks: null,
+        boundingBox: null,
+        pose: null,
+        error: this.initError ? String(this.initError) : "FaceMesh not initialized",
+      };
     }
 
     return new Promise((resolve) => {
@@ -276,8 +336,22 @@ class FaceDetectionService {
 // Export singleton instance
 export const faceDetectionService = new FaceDetectionService();
 
-// Preload models immediately when module is imported
-faceDetectionService.ensureModelsLoaded().catch((err) => {
-  console.warn("[FaceDetection] Preload failed, will retry on first use:", err);
-});
+/**
+ * Preload models immediately when module is imported.
+ * This runs in the background without blocking the UI.
+ */
+const preloadModels = () => {
+  // Start loading immediately but don't block
+  faceDetectionService.ensureModelsLoaded().catch((err) => {
+    console.warn("[FaceDetection] Preload failed, will retry on first use:", err);
+  });
+};
+
+// Preload immediately - MediaPipe loading is async and won't block
+preloadModels();
+
+/**
+ * Check if models are ready (for UI status indicators)
+ */
+export const areModelsReady = () => faceDetectionService.isReady();
 

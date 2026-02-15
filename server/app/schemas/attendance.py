@@ -1,44 +1,36 @@
-"""Attendance schemas."""
-from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
+from datetime import date, datetime
+from uuid import UUID
+from pydantic import BaseModel, Field
 
 
-class AttendanceCheckIn(BaseModel):
-    """Check-in request."""
-    employee_id: str
-    location: Optional[str] = None
-
-
-class AttendanceCheckOut(BaseModel):
-    """Check-out request."""
-    employee_id: str
+class AttendanceRequest(BaseModel):
+    person_id: str = Field(..., min_length=6, max_length=6)
+    site_id: UUID
+    shift_id: UUID
+    type: Literal["check-in", "check-out"]
 
 
 class AttendanceResponse(BaseModel):
-    """Attendance record response."""
-    id: int
-    employee_id: int
-    check_in_time: datetime
-    check_out_time: Optional[datetime]
-    location: Optional[str]
-    device_info: Optional[str]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+    attendance_id: UUID
+    person_id: str
+    full_name: str
+    timestamp: datetime
+    similarity: float
 
 
-class AttendanceHistoryResponse(BaseModel):
-    """Attendance history response."""
-    id: int
-    employee_id: int
-    employee_name: str
-    employee_code: str
-    check_in_time: datetime
-    check_out_time: Optional[datetime]
-    location: Optional[str]
-    created_at: datetime
+class AttendanceRead(BaseModel):
+    id: UUID
+    person_id: str
+    person_name: str
+    attendance_date: date
+    check_in: datetime
+    check_out: Optional[datetime] = None
+    overtime_hours: float = 0
+    location_name: Optional[str] = None
+    shift_name: Optional[str] = None
+    assignment_title: Optional[str] = None
+    assignment_rate: Optional[float] = None
 
     class Config:
         from_attributes = True

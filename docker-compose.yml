@@ -1,22 +1,64 @@
-version: "3.8"
-
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18-trixie
     container_name: erp_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: erp_user
-      POSTGRES_PASSWORD: erp_password
-      POSTGRES_DB: erp_db
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U erp_user -d erp_db"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-erp_user} -d ${POSTGRES_DB:-erp_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-volumes:
-  postgres_data:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: erp_backend
+    restart: unless-stopped
+    environment:
+      DB_URL: postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_pass}@postgres:5432/${POSTGRES_DB:-erp_db}
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      EMBEDDING_SIZE: ${EMBEDDING_SIZE:-128}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.60}
+      DEEPFACE_HOME: /opt/weights
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      JWT_ACCESS_EXPIRE_MINUTES: ${JWT_ACCESS_EXPIRE_MINUTES:-15}
+      JWT_REFRESH_EXPIRE_DAYS: ${JWT_REFRESH_EXPIRE_DAYS:-7}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./server:/app/server  # Hot-reload for development
+      - ./data/uploads:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: erp_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    volumes:
+      - ./client/src:/app/src  # Hot-reload for development
+    depends_on:
+      - backend

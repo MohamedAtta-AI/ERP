@@ -4,14 +4,47 @@ export const API_BASE_URL =
 
 // API Endpoints
 export const API_ENDPOINTS = {
-  REGISTER_EMPLOYEE: "/api/v1/employees/register",
+  // Auth
+  LOGIN: "/api/v1/auth/login",
+  CHANGE_PASSWORD: "/api/v1/auth/change-password",
+  
+  // Employee/Person endpoints
+  REGISTER_EMPLOYEE: "/api/v1/employees",
   ENROLL_FACE: (employeeId) => `/api/v1/employees/${employeeId}/enroll-face`,
   GET_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
+  UPDATE_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
+  DELETE_EMPLOYEE: (employeeId) => `/api/v1/employees/${employeeId}`,
+  LIST_EMPLOYEES: "/api/v1/employees",
+  CHECK_IDENTITY: "/api/v1/employees/check-identity",
+  PAYMENT_INFO: (employeeId) => `/api/v1/employees/${employeeId}/payment-info`,
+  UPLOAD_DOCUMENT: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
+  LIST_DOCUMENTS: (employeeId) => `/api/v1/employees/${employeeId}/documents`,
+  DOWNLOAD_DOCUMENT: (employeeId, docId) => `/api/v1/employees/${employeeId}/documents/${docId}/download`,
+  DELETE_DOCUMENT: (employeeId, docId) => `/api/v1/employees/${employeeId}/documents/${docId}`,
+  
+  // Attendance endpoints
   VERIFY_ATTENDANCE: "/api/v1/attendance/verify",
   CHECK_IN: "/api/v1/attendance/check-in",
   CHECK_OUT: "/api/v1/attendance/check-out",
   ATTENDANCE_HISTORY: "/api/v1/attendance/history",
-  HEALTH: "/api/v1/health",
+  IMPORT_ATTENDANCE: "/api/v1/attendance/import",
+  RECONCILE_ATTENDANCE: "/api/v1/attendance/reconcile",
+  
+  // Location endpoints
+  LOCATIONS: "/api/v1/locations",
+  LOCATION: (id) => `/api/v1/locations/${id}`,
+  
+  // Shift endpoints
+  SHIFTS: "/api/v1/shifts",
+  SHIFT: (id) => `/api/v1/shifts/${id}`,
+  
+  // Assignment endpoints
+  ASSIGNMENTS: "/api/v1/assignments",
+  ASSIGNMENT: (id) => `/api/v1/assignments/${id}`,
+  
+  // Overtime endpoints
+  OVERTIME_REQUESTS: "/api/v1/attendance/overtime",
+  OVERTIME_REQUEST: (id) => `/api/v1/attendance/overtime/${id}`,
 };
 
 // Quality Check Thresholds

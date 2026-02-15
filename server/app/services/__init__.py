@@ -1,1 +1,2 @@
-"""Services package."""
+from .person_id_generator import generate_person_id
+from .face_recognition import FaceRecognitionService
