@@ -5,7 +5,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
-    DEEPFACE_HOME=/app/server/weights
+    DEEPFACE_HOME=/opt/weights
 
 # Install system dependencies for OpenCV, DeepFace, and PostgreSQL
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +35,29 @@ COPY server/ ./server/
 
 # Create data directories
 RUN mkdir -p /app/data/uploads && \
-    mkdir -p /app/server/weights
+    mkdir -p /opt/weights
+
+# Preload DeepFace model weights at build time so runtime doesn't download them.
+# Uses the same options as the application runtime path (Facenet + anti-spoofing).
+RUN uv run python - <<'PY'
+import os
+import numpy as np
+from deepface import DeepFace
+
+os.environ["DEEPFACE_HOME"] = "/opt/weights"
+dummy = np.zeros((160, 160, 3), dtype=np.uint8)
+DeepFace.represent(
+    img_path=dummy,
+    model_name="Facenet",
+    detector_backend="skip",
+    enforce_detection=False,
+    align=True,
+    anti_spoofing=True,
+    normalization="Facenet",
+    l2_normalize=True,
+)
+print("DeepFace weights preloaded into /opt/weights")
+PY
 
 # Expose port
 EXPOSE 8000

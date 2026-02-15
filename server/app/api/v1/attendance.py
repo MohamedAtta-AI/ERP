@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select, or_
+from sqlalchemy import func
 # from sqlalchemy.ext.asyncio import AsyncSession
 # from sqlalchemy.orm import selectinload
 
@@ -15,7 +16,7 @@ from server.app.dependencies import require_auth
 from server.db.models import (
     Person, Attendance, AttendanceStatus, 
     FaceEmbedding, Assignment,
-    OvertimeRequest, Role
+    OvertimeRequest, Role, Site, Shift
 )
 from server.app.schemas.attendance import AttendanceResponse, AttendanceRead
 from server.app.schemas.overtime import OvertimeRequestCreate, OvertimeRequestUpdate, OvertimeRequestRead
@@ -140,6 +141,9 @@ class AttendanceImportRow(BaseModel):
     check_out: Optional[datetime] = None
     site_id: Optional[UUID] = None
     shift_id: Optional[UUID] = None
+    site_name: Optional[str] = None
+    shift_name: Optional[str] = None
+    overtime_hours: Optional[float] = 0
 
 
 class AttendanceImportRequest(BaseModel):
@@ -407,7 +411,11 @@ async def get_attendance_history(
             attendance_date=a.date,
             check_in=a.check_in,
             check_out=a.check_out,
-            status=_attendance_state(a),
+            overtime_hours=(
+                float(a.overtime_request.hours)
+                if a.overtime_request and a.overtime_request.status == AttendanceStatus.OVERTIME_APPROVED
+                else 0.0
+            ),
             location_name=a.assignment.site.name if a.assignment and a.assignment.site else None,
             shift_name=a.assignment.shift.name if a.assignment and a.assignment.shift else None,
             assignment_title=a.assignment.title if a.assignment else None,
@@ -442,18 +450,39 @@ async def import_attendance(
             if current_user.role == Role.SUPERVISOR and not _can_supervisor_access_person(current_user, person):
                 raise ValueError("You are not allowed to import attendance for this person")
 
+            resolved_site_id = row.site_id
+            resolved_shift_id = row.shift_id
+
+            if not resolved_site_id and row.site_name:
+                site_name = row.site_name.strip()
+                site = session.exec(
+                    select(Site).where(func.lower(Site.name) == site_name.lower())
+                ).first()
+                if not site:
+                    raise ValueError(f"Site '{row.site_name}' not found")
+                resolved_site_id = site.id
+
+            if not resolved_shift_id and row.shift_name:
+                shift_name = row.shift_name.strip()
+                shift = session.exec(
+                    select(Shift).where(func.lower(Shift.name) == shift_name.lower())
+                ).first()
+                if not shift:
+                    raise ValueError(f"Shift '{row.shift_name}' not found")
+                resolved_shift_id = shift.id
+
             assignment = _resolve_assignment(
                 session,
                 row.person_id,
                 row.attendance_date,
-                row.site_id,
-                row.shift_id,
+                resolved_site_id,
+                resolved_shift_id,
             )
-            if not assignment and row.site_id and row.shift_id:
+            if not assignment and resolved_site_id and resolved_shift_id:
                 assignment = Assignment(
                     person_id=row.person_id,
-                    site_id=row.site_id,
-                    shift_id=row.shift_id,
+                    site_id=resolved_site_id,
+                    shift_id=resolved_shift_id,
                     effective_from=row.attendance_date,
                 )
                 session.add(assignment)
@@ -481,6 +510,7 @@ async def import_attendance(
                 existing.check_in = check_in_value
                 existing.check_out = row.check_out
                 session.add(existing)
+                attendance_ref = existing
                 updated += 1
             else:
                 attendance = Attendance(
@@ -491,7 +521,27 @@ async def import_attendance(
                     assignment_id=assignment.id,
                 )
                 session.add(attendance)
+                session.flush()
+                attendance_ref = attendance
                 created += 1
+
+            overtime_value = float(row.overtime_hours or 0)
+            if overtime_value > 0:
+                existing_ot = session.get(OvertimeRequest, attendance_ref.id)
+                if existing_ot:
+                    existing_ot.hours = overtime_value
+                    existing_ot.status = AttendanceStatus.OVERTIME_APPROVED
+                    session.add(existing_ot)
+                else:
+                    session.add(
+                        OvertimeRequest(
+                            person_id=row.person_id,
+                            attendance_id=attendance_ref.id,
+                            hours=overtime_value,
+                            status=AttendanceStatus.OVERTIME_APPROVED,
+                            notes="Imported via attendance import",
+                        )
+                    )
         except Exception as exc:
             failed += 1
             errors.append(f"Row {row_number}: {str(exc)}")

@@ -3,6 +3,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
   createAssignment,
+  enrollFace,
   downloadEmployeeDocument,
   deleteEmployeeDocument,
   deleteEmployee,
@@ -19,6 +20,7 @@ import {
 } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 import ErrorMessage from "../Common/ErrorMessage";
+import FaceCapture from "../FaceCapture/FaceCapture";
 import ModuleHeader from "../Common/ModuleHeader";
 import styles from "./ManagementUI.module.css";
 
@@ -147,6 +149,8 @@ const EmployeeManagementPage = () => {
   const [documentType, setDocumentType] = useState("national_id");
   const [documentFile, setDocumentFile] = useState(null);
   const [openingDocumentId, setOpeningDocumentId] = useState(null);
+  const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
+  const [enrollingFace, setEnrollingFace] = useState(false);
 
   const loadEmployees = async () => {
     setLoading(true);
@@ -276,6 +280,8 @@ const EmployeeManagementPage = () => {
     setShowAddDocumentForm(false);
     setDocumentFile(null);
     setDocumentType("national_id");
+    setShowFaceEnrollment(false);
+    setEnrollingFace(false);
     await loadAssignments(employee.id);
     await loadDocuments(employee.id);
   };
@@ -575,6 +581,42 @@ const EmployeeManagementPage = () => {
     }
   };
 
+  const handleEnrollMultiFace = async (imageFiles) => {
+    if (!selectedEmployee) return;
+    setEnrollingFace(true);
+    setError(null);
+    try {
+      for (const file of imageFiles) {
+        await enrollFace(selectedEmployee.id, file);
+      }
+      setSuccess("Face enrolled successfully");
+      setShowFaceEnrollment(false);
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "employee" } }));
+      await loadEmployees();
+    } catch (e) {
+      setError(e.message || "Failed to enroll face");
+    } finally {
+      setEnrollingFace(false);
+    }
+  };
+
+  const handleEnrollSingleFace = async (imageFile) => {
+    if (!selectedEmployee) return;
+    setEnrollingFace(true);
+    setError(null);
+    try {
+      await enrollFace(selectedEmployee.id, imageFile);
+      setSuccess("Face enrolled successfully");
+      setShowFaceEnrollment(false);
+      window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: { type: "employee" } }));
+      await loadEmployees();
+    } catch (e) {
+      setError(e.message || "Failed to enroll face");
+    } finally {
+      setEnrollingFace(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <ModuleHeader title="Employee Management" />
@@ -722,6 +764,41 @@ const EmployeeManagementPage = () => {
           ) : (
             <>
               <h3 className={styles.panelTitle}>Edit {selectedEmployee.full_name}</h3>
+              {!selectedEmployee.has_face_registered && (
+                <div style={{ marginBottom: "0.9rem", border: "1px solid #fde68a", background: "#fffbeb", borderRadius: "10px", padding: "0.75rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <div>
+                      <strong style={{ color: "#92400e" }}>Face Not Enrolled</strong>
+                      <div className={styles.assignMeta} style={{ marginTop: "0.2rem" }}>
+                        Enroll face now so this employee can use face attendance.
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setShowFaceEnrollment((prev) => !prev)}
+                      disabled={enrollingFace}
+                    >
+                      {showFaceEnrollment ? "Close Enroll" : "Enroll Face"}
+                    </button>
+                  </div>
+
+                  {showFaceEnrollment && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      {enrollingFace ? (
+                        <div className={styles.empty}>Enrolling face...</div>
+                      ) : (
+                        <FaceCapture
+                          employeeId={selectedEmployee.id}
+                          onCapture={handleEnrollSingleFace}
+                          onMultiCapture={handleEnrollMultiFace}
+                          onCancel={() => setShowFaceEnrollment(false)}
+                          mode="registration"
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className={styles.formGridTight}>
                 <div className="form-group">
                   <label className="label">Full Name</label>

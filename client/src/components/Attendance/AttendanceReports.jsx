@@ -16,7 +16,7 @@ const EXPORT_COLUMNS = [
   "attendance_date",
   "check_in",
   "check_out",
-  "status",
+  "overtime_hours",
   "location_name",
   "shift_name",
   "assignment_title",
@@ -28,8 +28,9 @@ const IMPORT_COLUMNS = [
   "attendance_date",
   "check_in",
   "check_out",
-  "site_id",
-  "shift_id",
+  "site_name",
+  "shift_name",
+  "overtime_hours",
 ];
 
 const normalizeKey = (value) =>
@@ -50,7 +51,6 @@ const AttendanceReports = () => {
 
   const [query, setQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [replaceExisting, setReplaceExisting] = useState(false);
@@ -90,7 +90,6 @@ const AttendanceReports = () => {
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     return records.filter((record) => {
-      if (statusFilter && record.status !== statusFilter) return false;
       if (!term) return true;
       return [
         record.person_id,
@@ -98,14 +97,14 @@ const AttendanceReports = () => {
         record.attendance_date,
         record.location_name,
         record.shift_name,
+        record.overtime_hours,
         record.assignment_title,
         record.assignment_rate,
-        record.status,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
-  }, [records, query, statusFilter]);
+  }, [records, query]);
 
   const stats = useMemo(() => {
     const total = filtered.length;
@@ -123,7 +122,7 @@ const AttendanceReports = () => {
         attendance_date: record.attendance_date,
         check_in: record.check_in,
         check_out: record.check_out || "",
-        status: record.status,
+        overtime_hours: Number(record.overtime_hours || 0),
         location_name: record.location_name || "",
         shift_name: record.shift_name || "",
         assignment_title: record.assignment_title || "",
@@ -157,8 +156,9 @@ const AttendanceReports = () => {
         attendance_date: new Date().toISOString().split("T")[0],
         check_in: "",
         check_out: "",
-        site_id: "",
-        shift_id: "",
+        site_name: "",
+        shift_name: "",
+        overtime_hours: 0,
       },
     ];
     const worksheet = XLSX.utils.json_to_sheet(sample, { header: IMPORT_COLUMNS });
@@ -210,16 +210,24 @@ const AttendanceReports = () => {
           const attendanceDate = String(normalized.attendance_date || "").trim();
           const checkIn = String(normalized.check_in || "").trim();
           const checkOut = String(normalized.check_out || "").trim();
+          const siteName = String(normalized.site_name || "").trim();
+          const shiftName = String(normalized.shift_name || "").trim();
           const siteId = String(normalized.site_id || "").trim();
           const shiftId = String(normalized.shift_id || "").trim();
+          const overtimeHoursRaw = String(normalized.overtime_hours || "").trim();
+          const overtimeHours = overtimeHoursRaw === "" ? 0 : Number(overtimeHoursRaw);
           if (!personId || !attendanceDate) return null;
           return {
             person_id: personId,
             attendance_date: attendanceDate,
             check_in: checkIn || null,
             check_out: checkOut || null,
+            site_name: siteName || null,
+            shift_name: shiftName || null,
+            // Backward compatibility if users still upload IDs.
             site_id: siteId || null,
             shift_id: shiftId || null,
+            overtime_hours: Number.isFinite(overtimeHours) && overtimeHours > 0 ? overtimeHours : 0,
           };
         })
         .filter(Boolean);
@@ -253,7 +261,7 @@ const AttendanceReports = () => {
         <div className={styles.toolbar}>
           <input
             className="input-field"
-            placeholder="Search by person, date, location, shift, status..."
+            placeholder="Search by person, date, location, shift, overtime..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -264,14 +272,6 @@ const AttendanceReports = () => {
                 {employee.full_name} ({employee.id})
               </option>
             ))}
-          </select>
-          <select className="select-field" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All Statuses</option>
-            <option value="checked-in">Checked In</option>
-            <option value="checked-out">Checked Out</option>
-            <option value="overtime_pending">OT Pending</option>
-            <option value="overtime_approved">OT Approved</option>
-            <option value="overtime_rejected">OT Rejected</option>
           </select>
           <input type="date" className="input-field" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" className="input-field" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
@@ -327,7 +327,7 @@ const AttendanceReports = () => {
                 <th>Date</th>
                 <th>Check In</th>
                 <th>Check Out</th>
-                <th>Status</th>
+                <th>Overtime</th>
                 <th>Location</th>
                 <th>Shift</th>
                 <th>Title</th>
@@ -342,7 +342,7 @@ const AttendanceReports = () => {
                   <td>{record.attendance_date}</td>
                   <td>{record.check_in ? new Date(record.check_in).toLocaleString() : "-"}</td>
                   <td>{record.check_out ? new Date(record.check_out).toLocaleString() : "-"}</td>
-                  <td>{record.status}</td>
+                  <td>{Number(record.overtime_hours || 0)}</td>
                   <td>{record.location_name || "-"}</td>
                   <td>{record.shift_name || "-"}</td>
                   <td>{record.assignment_title || "-"}</td>

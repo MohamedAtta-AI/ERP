@@ -26,7 +26,7 @@ class AttendanceRead(BaseModel):
     attendance_date: date
     check_in: datetime
     check_out: Optional[datetime] = None
-    status: str
+    overtime_hours: float = 0
     location_name: Optional[str] = None
     shift_name: Optional[str] = None
     assignment_title: Optional[str] = None

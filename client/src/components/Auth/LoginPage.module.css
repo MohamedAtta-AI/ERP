@@ -163,34 +163,3 @@
   font-size: 0.8rem;
   line-height: 1.5;
 }
-
-.footer {
-  margin-top: 2rem;
-  text-align: center;
-  color: #6b7280;
-  font-size: 0.875rem;
-}
-
-.demoButtons {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-top: 0.75rem;
-}
-
-.demoButton {
-  padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.demoButton:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
