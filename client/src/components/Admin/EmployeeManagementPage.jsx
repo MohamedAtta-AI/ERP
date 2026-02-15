@@ -1011,9 +1011,6 @@ const EmployeeManagementPage = () => {
               <div style={{ marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid var(--color-border)" }}>
                 <div className={styles.rowActions}>
                   <button className="btn btn-primary" onClick={handleSave}>Save Changes</button>
-                  {isAdmin && (
-                    <button className="btn btn-danger" onClick={handleDeleteEmployee}>Delete Employee</button>
-                  )}
                 </div>
               </div>
             </>
